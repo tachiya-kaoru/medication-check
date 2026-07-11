@@ -94,12 +94,26 @@ export default function ComparePage() {
         });
         setLoadingStep("analyzing");
 
-        const data = await res.json();
+        const rawText = await res.text();
+        let data: { error?: string } & Record<string, unknown> = {};
+        try {
+          data = rawText ? (JSON.parse(rawText) as typeof data) : {};
+        } catch {
+          throw new Error(
+            res.ok
+              ? "応答の形式が不正でした。もう一度お試しください。"
+              : `比較に失敗しました（HTTP ${res.status}）`
+          );
+        }
         if (!res.ok) {
-          throw new Error(data.error || "比較に失敗しました");
+          throw new Error(
+            typeof data.error === "string" && data.error
+              ? data.error
+              : `比較に失敗しました（HTTP ${res.status}）`
+          );
         }
 
-        setResult(data as CompareResult);
+        setResult(data as unknown as CompareResult);
         setCreatedAt(new Date());
         setPhase("result");
       } finally {

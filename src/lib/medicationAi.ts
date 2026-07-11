@@ -2,7 +2,6 @@ import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { formatDentalCautionListForPrompt } from "@/lib/dentalCautionList";
 import {
   GEMINI_MODEL,
-  GEMINI_MODEL_THOROUGH,
   analyzeResponseSchema,
   buildGeminiConfig,
 } from "@/lib/geminiConfig";
@@ -62,8 +61,6 @@ export async function extractMedicationsFromImages(
 ): Promise<AnalyzeResult> {
   const ai = new GoogleGenAI({ apiKey });
   const singleImage = images.length === 1;
-  const model = singleImage ? GEMINI_MODEL_THOROUGH : GEMINI_MODEL;
-  const thinkingLevel = singleImage ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL;
 
   const parts: ImagePart[] = [
     { text: buildExtractPrompt() },
@@ -81,9 +78,11 @@ export async function extractMedicationsFromImages(
   ];
 
   const response = await ai.models.generateContent({
-    model,
+    model: GEMINI_MODEL,
     contents: [{ role: "user", parts }],
-    config: buildGeminiConfig(analyzeResponseSchema, { thinkingLevel }),
+    config: buildGeminiConfig(analyzeResponseSchema, {
+      thinkingLevel: ThinkingLevel.MINIMAL,
+    }),
   });
 
   const text = response.text?.trim() ?? "";

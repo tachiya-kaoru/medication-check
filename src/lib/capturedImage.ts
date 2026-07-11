@@ -26,11 +26,17 @@ export async function filesToCapturedImages(files: FileList | File[]): Promise<C
   );
 }
 
+/** images が1枚のときは高解像度で再圧縮、複数枚はキャッシュを使う */
 export async function ensureCompressed(
   images: CapturedImage[]
 ): Promise<AnalyzeRequestImage[]> {
+  const singleImage = images.length === 1;
   return Promise.all(
     images.map(async (img) => {
+      if (singleImage) {
+        // 1枚は文字が潰れにくいよう高品質で送る
+        return compressImageDataUrl(img.dataUrl, 1600, 0.82);
+      }
       if (img.compressed?.data && img.compressed.mimeType) {
         return img.compressed;
       }
