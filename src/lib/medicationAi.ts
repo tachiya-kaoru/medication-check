@@ -1,12 +1,17 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { formatDentalCautionListForPrompt } from "@/lib/dentalCautionList";
+import { normalizeDrugKey } from "@/lib/diffMedications";
 import {
   GEMINI_MODEL,
   analyzeResponseSchema,
   buildGeminiConfig,
 } from "@/lib/geminiConfig";
 import { parseJsonObject, parseMedicationList } from "@/lib/parseMedications";
-import type { AnalyzeRequestImage, AnalyzeResult } from "@/lib/types";
+import type {
+  AnalyzeRequestImage,
+  AnalyzeResult,
+  MedicationItem,
+} from "@/lib/types";
 
 type ImagePart = { text: string } | { inlineData: { mimeType: string; data: string } };
 
@@ -53,25 +58,58 @@ function toInlineParts(images: AnalyzeRequestImage[]): ImagePart[] {
     }));
 }
 
-/** お薬表作成と同じ抽出ロジック（写真 → 薬品リスト） */
-export async function extractMedicationsFromImages(
-  apiKey: string,
+function medicationKeys(med: MedicationItem): string[] {
+  return [med.name, med.genericName]
+    .map((t) => normalizeDrugKey(t))
+    .filter((t) => t.length >= 2);
+}
+
+function isSameMedication(a: MedicationItem, b: MedicationItem): boolean {
+  const aKeys = medicationKeys(a);
+  const bKeys = medicationKeys(b);
+  if (aKeys.length === 0 || bKeys.length === 0) return false;
+  for (const ak of aKeys) {
+    for (const bk of bKeys) {
+      if (ak === bk) return true;
+      const shorter = ak.length <= bk.length ? ak : bk;
+      const longer = ak.length <= bk.length ? bk : ak;
+      if (shorter.length >= 3 && longer.includes(shorter)) return true;
+    }
+  }
+  return false;
+}
+
+/** 2回の抽出結果を和集合で統合（漏れ補完用） */
+export function mergeMedicationResults(
+  primary: AnalyzeResult,
+  secondary: AnalyzeResult
+): AnalyzeResult {
+  const merged = [...primary.medications];
+  for (const med of secondary.medications) {
+    if (!merged.some((existing) => isSameMedication(existing, med))) {
+      merged.push(med);
+    }
+  }
+  const notes = [primary.notes, secondary.notes].filter(Boolean).join(" ／ ");
+  return { medications: merged, notes };
+}
+
+async function extractOnce(
+  ai: GoogleGenAI,
   images: AnalyzeRequestImage[],
-  label = "お薬関連"
+  extraTexts: string[],
+  thinkingLevel: ThinkingLevel
 ): Promise<AnalyzeResult> {
-  const ai = new GoogleGenAI({ apiKey });
   const parts: ImagePart[] = [
     { text: buildExtractPrompt() },
-    {
-      text: `以下は${label}の写真 ${images.length} 枚です。写っている薬品名をすべて抽出し、1剤も落とさないでください。`,
-    },
+    ...extraTexts.map((text) => ({ text })),
     ...toInlineParts(images),
   ];
 
   const response = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: [{ role: "user", parts }],
-    config: buildGeminiConfig(analyzeResponseSchema),
+    config: buildGeminiConfig(analyzeResponseSchema, { thinkingLevel }),
   });
 
   const text = response.text?.trim() ?? "";
@@ -84,4 +122,55 @@ export async function extractMedicationsFromImages(
     medications: parseMedicationList(raw.medications),
     notes: String(raw.notes ?? "").trim(),
   };
+}
+
+/**
+ * お薬表作成と同じ抽出ロジック（写真 → 薬品リスト）。
+ * 1枚のときは見落としやすいので、再読取して結果を統合する。
+ */
+export async function extractMedicationsFromImages(
+  apiKey: string,
+  images: AnalyzeRequestImage[],
+  label = "お薬関連"
+): Promise<AnalyzeResult> {
+  const ai = new GoogleGenAI({ apiKey });
+  const singleImage = images.length === 1;
+  const thinkingLevel = singleImage ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL;
+
+  const first = await extractOnce(
+    ai,
+    images,
+    [
+      `以下は${label}の写真 ${images.length} 枚です。写っている薬品名をすべて抽出し、1剤も落とさないでください。`,
+      ...(singleImage
+        ? [
+            "写真は1枚のみです。行の端・小さい字・かすれ・反射で読みにくい薬品も、読める範囲ですべて列挙してください。",
+          ]
+        : []),
+    ],
+    thinkingLevel
+  );
+
+  if (!singleImage) {
+    return first;
+  }
+
+  // 読みにくい1枚対策: 別視点で再抽出し、和集合で漏れを補う
+  const firstNames = first.medications
+    .map((m) => m.name)
+    .filter(Boolean)
+    .join("、");
+
+  const second = await extractOnce(
+    ai,
+    images,
+    [
+      `以下は${label}の写真1枚の再確認です。1回目の結果に漏れがないか、写真を最初から見直し、完全な薬品リストを返してください。`,
+      `1回目で抽出した薬品名: ${firstNames || "（なし）"}`,
+      "1回目の薬は残しつつ、漏れていた薬を必ず追加した最終リストにしてください。存在しない薬は追加しないでください。",
+    ],
+    ThinkingLevel.LOW
+  );
+
+  return mergeMedicationResults(first, second);
 }
