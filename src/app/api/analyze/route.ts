@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractMedicationsFromImages } from "@/lib/medicationAi";
-import { filesFromFormData } from "@/lib/parseUploadedImages";
+import { filesFromFormData, indexedImagesFromFormData } from "@/lib/parseUploadedImages";
 import type { AnalyzeRequestImage, AnalyzeResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -10,6 +10,10 @@ async function readImages(req: NextRequest): Promise<AnalyzeRequestImage[]> {
   const contentType = req.headers.get("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const formData = await req.formData();
+    // 新形式（image_0…）を優先。旧形式（images 同名複数）も受け付ける
+    if (formData.has("imageCount") || formData.has("image_0")) {
+      return indexedImagesFromFormData(formData, "image", "imageCount");
+    }
     return filesFromFormData(formData, "images");
   }
 
@@ -29,8 +33,10 @@ export async function POST(req: NextRequest) {
   let images: AnalyzeRequestImage[];
   try {
     images = await readImages(req);
-  } catch {
-    return NextResponse.json({ error: "リクエスト形式が不正です" }, { status: 400 });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "リクエスト形式が不正です";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   if (images.length === 0) {

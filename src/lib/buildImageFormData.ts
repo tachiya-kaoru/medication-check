@@ -10,11 +10,25 @@ export function analyzeImageToBlob(image: AnalyzeRequestImage): Blob {
   return new Blob([bytes], { type: image.mimeType || "image/jpeg" });
 }
 
+function appendImageList(
+  form: FormData,
+  fieldPrefix: string,
+  countField: string,
+  images: AnalyzeRequestImage[]
+) {
+  form.append(countField, String(images.length));
+  images.forEach((image, index) => {
+    form.append(
+      `${fieldPrefix}_${index}`,
+      analyzeImageToBlob(image),
+      `${fieldPrefix}-${index}.jpg`
+    );
+  });
+}
+
 export function buildAnalyzeFormData(images: AnalyzeRequestImage[]): FormData {
   const form = new FormData();
-  images.forEach((image, index) => {
-    form.append("images", analyzeImageToBlob(image), `image-${index}.jpg`);
-  });
+  appendImageList(form, "image", "imageCount", images);
   return form;
 }
 
@@ -24,20 +38,13 @@ export function buildCompareFormData(input: {
   previousMedications?: unknown[];
 }): FormData {
   const form = new FormData();
-  input.currentImages.forEach((image, index) => {
-    form.append(
-      "currentImages",
-      analyzeImageToBlob(image),
-      `current-${index}.jpg`
-    );
-  });
-  (input.previousImages ?? []).forEach((image, index) => {
-    form.append(
-      "previousImages",
-      analyzeImageToBlob(image),
-      `previous-${index}.jpg`
-    );
-  });
+  appendImageList(form, "currentImage", "currentImageCount", input.currentImages);
+  appendImageList(
+    form,
+    "previousImage",
+    "previousImageCount",
+    input.previousImages ?? []
+  );
   if (input.previousMedications && input.previousMedications.length > 0) {
     form.append(
       "previousMedications",
