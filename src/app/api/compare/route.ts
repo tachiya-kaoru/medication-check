@@ -1,10 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { diffMedicationsLocally } from "@/lib/diffMedications";
 import { extractMedicationsFromImages } from "@/lib/medicationAi";
+import { filesFromFormData } from "@/lib/parseUploadedImages";
 import type { AnalyzeRequestImage, CompareResult, MedicationItem } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+
+async function readComparePayload(req: NextRequest): Promise<{
+  previousImages: AnalyzeRequestImage[];
+  previousMedications: MedicationItem[];
+  currentImages: AnalyzeRequestImage[];
+}> {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await req.formData();
+    const previousMedicationsRaw = formData.get("previousMedications");
+    let previousMedications: MedicationItem[] = [];
+    if (typeof previousMedicationsRaw === "string" && previousMedicationsRaw) {
+      previousMedications = JSON.parse(previousMedicationsRaw) as MedicationItem[];
+    }
+    return {
+      previousImages: await filesFromFormData(formData, "previousImages"),
+      previousMedications,
+      currentImages: await filesFromFormData(formData, "currentImages"),
+    };
+  }
+
+  const body = (await req.json()) as {
+    previousImages?: AnalyzeRequestImage[];
+    previousMedications?: MedicationItem[];
+    currentImages?: AnalyzeRequestImage[];
+  };
+  return {
+    previousImages: body.previousImages ?? [],
+    previousMedications: body.previousMedications ?? [],
+    currentImages: body.currentImages ?? [],
+  };
+}
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -15,20 +48,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: {
-    previousImages?: AnalyzeRequestImage[];
-    previousMedications?: MedicationItem[];
-    currentImages?: AnalyzeRequestImage[];
-  };
+  let previousImages: AnalyzeRequestImage[];
+  let previousMedications: MedicationItem[];
+  let currentImages: AnalyzeRequestImage[];
   try {
-    body = await req.json();
+    ({ previousImages, previousMedications, currentImages } =
+      await readComparePayload(req));
   } catch {
     return NextResponse.json({ error: "リクエスト形式が不正です" }, { status: 400 });
   }
 
-  const previousImages = body.previousImages ?? [];
-  const previousMedications = body.previousMedications ?? [];
-  const currentImages = body.currentImages ?? [];
   const hasPreviousFromQr = previousMedications.length > 0;
   const hasPreviousFromPhotos = previousImages.length > 0;
 

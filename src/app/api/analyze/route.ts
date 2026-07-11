@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractMedicationsFromImages } from "@/lib/medicationAi";
+import { filesFromFormData } from "@/lib/parseUploadedImages";
 import type { AnalyzeRequestImage, AnalyzeResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+async function readImages(req: NextRequest): Promise<AnalyzeRequestImage[]> {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await req.formData();
+    return filesFromFormData(formData, "images");
+  }
+
+  const body = (await req.json()) as { images?: AnalyzeRequestImage[] };
+  return body.images ?? [];
+}
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -14,14 +26,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { images?: AnalyzeRequestImage[] };
+  let images: AnalyzeRequestImage[];
   try {
-    body = await req.json();
+    images = await readImages(req);
   } catch {
     return NextResponse.json({ error: "リクエスト形式が不正です" }, { status: 400 });
   }
 
-  const images = body.images ?? [];
   if (images.length === 0) {
     return NextResponse.json({ error: "画像がありません" }, { status: 400 });
   }
