@@ -3,9 +3,6 @@ import { ThinkingLevel } from "@google/genai";
 /** お薬読み取り用の共通 Gemini 設定（案C: 3.1 Flash-Lite + thinking minimal） */
 export const GEMINI_MODEL = "gemini-3.1-flash-lite";
 
-/** 読みにくい1枚向け（文字起こし精度優先） */
-export const GEMINI_MODEL_THOROUGH = "gemini-2.5-flash";
-
 const medicationItemSchema = {
   type: "object",
   properties: {
@@ -49,7 +46,7 @@ export function buildGeminiConfig(
     responseMimeType: "application/json" as const,
     responseJsonSchema,
     temperature: 0.2,
-    // お薬名抽出は速度優先（案C）。少枚数の再読取時は thinking を少し上げる
+    // お薬名抽出は速度優先（案C）
     thinkingConfig: {
       thinkingLevel: options?.thinkingLevel ?? ThinkingLevel.MINIMAL,
     },
