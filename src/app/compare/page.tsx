@@ -2,28 +2,18 @@
 
 import { useState, useCallback } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { PhotoSection, type CapturedImage } from "@/components/PhotoSection";
-import { compressImageDataUrl } from "@/lib/compressImage";
+import { PhotoSection } from "@/components/PhotoSection";
+import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import type { CompareResult, MedicationItem } from "@/lib/types";
 
 type AppPhase = "input" | "loading" | "result" | "error";
 
-function readFilesAsImages(files: FileList, setter: React.Dispatch<React.SetStateAction<CapturedImage[]>>) {
-  Array.from(files).forEach((file) => {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setter((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          dataUrl,
-          fileName: file.name,
-        },
-      ]);
-    };
-    reader.readAsDataURL(file);
-  });
+async function addFiles(
+  files: File[],
+  setter: React.Dispatch<React.SetStateAction<CapturedImage[]>>
+) {
+  const next = await filesToCapturedImages(files);
+  setter((prev) => [...prev, ...next]);
 }
 
 export default function ComparePage() {
@@ -44,8 +34,8 @@ export default function ComparePage() {
 
     try {
       const [prevCompressed, currCompressed] = await Promise.all([
-        Promise.all(previousImages.map((img) => compressImageDataUrl(img.dataUrl))),
-        Promise.all(currentImages.map((img) => compressImageDataUrl(img.dataUrl))),
+        ensureCompressed(previousImages),
+        ensureCompressed(currentImages),
       ]);
 
       const res = await fetch("/api/compare", {
@@ -114,7 +104,14 @@ export default function ComparePage() {
               <PhotoSection
                 title="① 前回のお薬手帳"
                 images={previousImages}
-                onAdd={(files) => readFilesAsImages(files, setPreviousImages)}
+                onAdd={(files) => {
+                  void addFiles(files, setPreviousImages).catch((err) => {
+                    setErrorMessage(
+                      err instanceof Error ? err.message : "画像の読み込みに失敗しました"
+                    );
+                    setPhase("error");
+                  });
+                }}
                 onRemove={(id) =>
                   setPreviousImages((prev) => prev.filter((img) => img.id !== id))
                 }
@@ -124,7 +121,14 @@ export default function ComparePage() {
               <PhotoSection
                 title="② 今回のお薬手帳"
                 images={currentImages}
-                onAdd={(files) => readFilesAsImages(files, setCurrentImages)}
+                onAdd={(files) => {
+                  void addFiles(files, setCurrentImages).catch((err) => {
+                    setErrorMessage(
+                      err instanceof Error ? err.message : "画像の読み込みに失敗しました"
+                    );
+                    setPhase("error");
+                  });
+                }}
                 onRemove={(id) =>
                   setCurrentImages((prev) => prev.filter((img) => img.id !== id))
                 }

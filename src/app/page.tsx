@@ -3,14 +3,8 @@
 import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
 import { AppHeader } from "@/components/AppHeader";
-import { compressImageDataUrl } from "@/lib/compressImage";
+import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import type { AnalyzeResult, MedicationItem } from "@/lib/types";
-
-interface CapturedImage {
-  id: string;
-  dataUrl: string;
-  fileName: string;
-}
 
 type AppPhase = "input" | "loading" | "result" | "error";
 
@@ -24,29 +18,28 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files || files.length === 0) return;
-
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const dataUrl = ev.target?.result as string;
-          setImages((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${Math.random()}`,
-              dataUrl,
-              fileName: file.name,
-            },
-          ]);
-        };
-        reader.readAsDataURL(file);
-      });
-
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const fileList = e.target.files;
+      if (!fileList || fileList.length === 0) return;
+      // value を空にすると FileList も消えるため、先に File[] へコピーする
+      const files = Array.from(fileList);
       e.target.value = "";
+
+      try {
+        const next = await filesToCapturedImages(files);
+        setImages((prev) => [...prev, ...next]);
+        if (phase === "error") {
+          setPhase("input");
+          setErrorMessage("");
+        }
+      } catch (err) {
+        setErrorMessage(
+          err instanceof Error ? err.message : "画像の読み込みに失敗しました"
+        );
+        setPhase("error");
+      }
     },
-    []
+    [phase]
   );
 
   const handleRemoveImage = useCallback((id: string) => {
@@ -61,9 +54,7 @@ export default function Home() {
     setResult(null);
 
     try {
-      const compressed = await Promise.all(
-        images.map((img) => compressImageDataUrl(img.dataUrl))
-      );
+      const compressed = await ensureCompressed(images);
 
       const res = await fetch("/api/analyze", {
         method: "POST",
