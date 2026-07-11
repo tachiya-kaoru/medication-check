@@ -2,17 +2,14 @@
 
 import { useRef } from "react";
 import Image from "next/image";
+import type { CapturedImage } from "@/lib/capturedImage";
 
-export interface CapturedImage {
-  id: string;
-  dataUrl: string;
-  fileName: string;
-}
+export type { CapturedImage };
 
 interface PhotoSectionProps {
   title: string;
   images: CapturedImage[];
-  onAdd: (files: FileList) => void;
+  onAdd: (files: File[]) => void;
   onRemove: (id: string) => void;
   accent?: "teal" | "slate" | "indigo";
 }
@@ -56,8 +53,10 @@ export function PhotoSection({
         multiple
         capture="environment"
         onChange={(e) => {
-          if (e.target.files && e.target.files.length > 0) {
-            onAdd(e.target.files);
+          const fileList = e.target.files;
+          if (fileList && fileList.length > 0) {
+            // value クリアで FileList が空になる前にコピーする
+            onAdd(Array.from(fileList));
           }
           e.target.value = "";
         }}

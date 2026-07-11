@@ -1,42 +1,48 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
-import { parseMedicationList, stripJsonFence } from "@/lib/parseMedications";
+import { formatDentalCautionListForPrompt } from "@/lib/dentalCautionList";
+import {
+  GEMINI_MODEL,
+  buildGeminiConfig,
+  compareResponseSchema,
+} from "@/lib/geminiConfig";
+import { parseJsonObject, parseMedicationList } from "@/lib/parseMedications";
 import type { AnalyzeRequestImage, CompareResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
-const SYSTEM_PROMPT = `あなたは歯科医院向けの薬剤情報比較アシスタントです。
+function buildSystemPrompt(): string {
+  return `あなたは歯科医院向けの薬剤情報比較アシスタントです。
 「前回」と「今回」のお薬手帳・処方箋などの写真を比較し、増えた薬・消えた薬・継続中の薬を整理してください。
 
 【厳守ルール】
-- 写真に写っている薬品のみを対象にする（推測で追加しない）
+- 前回・今回それぞれ、写真に写っている薬品をすべて対象にする（1剤でも落とさない。最優先）
+- 推測で存在しない薬を追加しない
 - 同一成分・同一薬の表記ゆれ（商品名/一般名、剤形の軽微な違い）は同じ薬として扱う
+- 外用薬・頓服・漢方・点眼・貼付剤も、名前が読めるものは必ず含める
+- dentalNotes が空でも、薬の行自体は added / removed / unchanged のいずれかに残す
 - 用量・用法だけの変更は「継続（unchanged）」とし、notes に「用量変更の可能性」と書く
-- 歯科での注意事項は、出血傾向・骨壊死リスク・相互作用・麻酔・抜歯等の観点で簡潔に
-- 不明な点は dentalNotes に「要確認」と書く
 - 患者の個人情報は出力しない
+- 出力前に、前回・今回それぞれの薬品数と結果件数を照合し、見落としがないか確認する
+- 読み取りが不完全な可能性がある場合は notes にその旨を書く
+
+【dentalNotes（歯科での注意）の書き方】
+- 歯科処置で特記すべき注意がある薬だけ書く
+- 特記すべき注意がない薬は dentalNotes を空文字 "" にする
+- 判断できない場合のみ「要確認」と書く
+- 下の【院内 歯科注意薬リスト】に一致／類似する薬は、リストの注意文を優先して使う
 
 【cautionLevel】
-- high: 抜歯・外科で特に注意（抗凝固薬、ビスホスホネート系等）
-- medium: 注意が必要だが通常は管理可能
-- low: 歯科処置への影響が小さい
+- high: 抜歯・外科で特に注意
+- medium: 注意はあるが通常は管理可能
+- low: 特記事項なし（dentalNotes が空のときは原則 low）
 
-必ず次のJSON形式のみで返答してください（説明文やMarkdownは不要）:
-{
-  "added": [
-    {
-      "name": "薬品名",
-      "genericName": "一般名（不明なら空文字）",
-      "purpose": "何の薬か",
-      "dentalNotes": "歯科での注意事項",
-      "cautionLevel": "low" | "medium" | "high"
-    }
-  ],
-  "removed": [ /* 前回にあって今回にない薬。同じ形式 */ ],
-  "unchanged": [ /* 両方にある薬。同じ形式 */ ],
-  "notes": "全体への補足（なければ空文字）"
-}`;
+【院内 歯科注意薬リスト】
+${formatDentalCautionListForPrompt()}
+
+JSONで added / removed / unchanged / notes を返してください。`;
+}
 
 type ImagePart = { text: string } | { inlineData: { mimeType: string; data: string } };
 
@@ -75,20 +81,17 @@ export async function POST(req: NextRequest) {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const parts: ImagePart[] = [
-      { text: SYSTEM_PROMPT },
+      { text: buildSystemPrompt() },
       { text: `【前回のお薬手帳】写真 ${previousImages.length} 枚` },
       ...toInlineParts(previousImages),
-      { text: `【今回のお薬手帳】写真 ${currentImages.length} 枚。前回と比較して増減を整理してください。` },
+      { text: `【今回のお薬手帳】写真 ${currentImages.length} 枚。前回・今回とも薬品をすべて拾い、1剤も落とさず増減を整理してください。` },
       ...toInlineParts(currentImages),
     ];
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       contents: [{ role: "user", parts }],
-      config: {
-        responseMimeType: "application/json",
-        temperature: 0.2,
-      },
+      config: buildGeminiConfig(compareResponseSchema),
     });
 
     const text = response.text?.trim() ?? "";
@@ -99,13 +102,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const parsed = parseCompareResult(text);
-    return NextResponse.json(parsed satisfies CompareResult);
+    const raw = parseJsonObject(text);
+    const parsed: CompareResult = {
+      added: parseMedicationList(raw.added),
+      removed: parseMedicationList(raw.removed),
+      unchanged: parseMedicationList(raw.unchanged),
+      notes: String(raw.notes ?? "").trim(),
+    };
+    return NextResponse.json(parsed);
   } catch (err) {
     console.error("[compare]", err);
     const message =
       err instanceof Error ? err.message : "比較中にエラーが発生しました";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const userMessage =
+      /JSON|応答形式/i.test(message)
+        ? "AIの応答形式が不正でした。もう一度お試しください。"
+        : message;
+    return NextResponse.json({ error: userMessage }, { status: 500 });
   }
 }
 
@@ -118,20 +131,4 @@ function toInlineParts(images: AnalyzeRequestImage[]): ImagePart[] {
         data: image.data,
       },
     }));
-}
-
-function parseCompareResult(text: string): CompareResult {
-  const raw = JSON.parse(stripJsonFence(text)) as {
-    added?: unknown;
-    removed?: unknown;
-    unchanged?: unknown;
-    notes?: unknown;
-  };
-
-  return {
-    added: parseMedicationList(raw.added),
-    removed: parseMedicationList(raw.removed),
-    unchanged: parseMedicationList(raw.unchanged),
-    notes: String(raw.notes ?? "").trim(),
-  };
 }
