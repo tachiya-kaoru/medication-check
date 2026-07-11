@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { formatDate } from "@/lib/formatDate";
+import { LogoutButton } from "@/components/LogoutButton";
 
 interface AppHeaderProps {
   current: "analyze" | "compare";
@@ -18,10 +19,13 @@ export function AppHeader({ current }: AppHeaderProps) {
             <h1 className="text-2xl font-bold text-teal-700 tracking-wide">お薬情報整理</h1>
             <p className="text-sm text-slate-500 mt-0.5">院内専用システム</p>
           </div>
-          <p className="text-base sm:text-lg font-semibold text-slate-700 sm:text-right">
-            作成日：
-            <span className="font-mono tracking-wide ml-1">{createdDateLabel}</span>
-          </p>
+          <div className="flex flex-col items-start sm:items-end gap-1">
+            <p className="text-base sm:text-lg font-semibold text-slate-700 sm:text-right">
+              作成日：
+              <span className="font-mono tracking-wide ml-1">{createdDateLabel}</span>
+            </p>
+            <LogoutButton />
+          </div>
         </div>
         <nav className="flex gap-2">
           <Link
