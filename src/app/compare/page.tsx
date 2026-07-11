@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useRef, useState, useCallback, useMemo } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { MedicationQrPanel } from "@/components/MedicationQrPanel";
 import { PhotoSection } from "@/components/PhotoSection";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
+import { decodeMedicationQrFromFile } from "@/lib/decodeMedicationQr";
 import { formatDate } from "@/lib/formatDate";
+import { currentMedicationsFromCompare } from "@/lib/medicationQr";
 import type { CompareResult, MedicationItem } from "@/lib/types";
 
 type AppPhase = "input" | "loading" | "result" | "error";
@@ -20,32 +23,65 @@ async function addFiles(
 export default function ComparePage() {
   const [patientNumber, setPatientNumber] = useState("");
   const [previousImages, setPreviousImages] = useState<CapturedImage[]>([]);
+  const [previousFromQr, setPreviousFromQr] = useState<MedicationItem[] | null>(null);
+  const [previousQrLabel, setPreviousQrLabel] = useState("");
   const [currentImages, setCurrentImages] = useState<CapturedImage[]>([]);
   const [phase, setPhase] = useState<AppPhase>("input");
   const [result, setResult] = useState<CompareResult | null>(null);
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const qrInputRef = useRef<HTMLInputElement>(null);
+
+  const qrMedications = useMemo(
+    () => (result ? currentMedicationsFromCompare(result) : []),
+    [result]
+  );
+
+  const handleQrFile = useCallback(async (files: File[]) => {
+    if (!files.length) return;
+    const file = files[0];
+    try {
+      const decoded = await decodeMedicationQrFromFile(file);
+      setPreviousFromQr(decoded.medications);
+      setPreviousQrLabel(
+        `QR読込 ${decoded.medications.length}件` +
+          (decoded.payload.d ? `（${decoded.payload.d}）` : "")
+      );
+      setPreviousImages([]);
+      setPatientNumber((prev) => prev || decoded.payload.p || "");
+      setErrorMessage("");
+      setPhase((p) => (p === "error" ? "input" : p));
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "QRの読み取りに失敗しました");
+      setPhase("error");
+    }
+  }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (previousImages.length === 0 || currentImages.length === 0) return;
+    const hasPrevious = (previousFromQr?.length ?? 0) > 0 || previousImages.length > 0;
+    if (!hasPrevious || currentImages.length === 0) return;
 
     setPhase("loading");
     setErrorMessage("");
     setResult(null);
 
     try {
-      const [prevCompressed, currCompressed] = await Promise.all([
-        ensureCompressed(previousImages),
-        ensureCompressed(currentImages),
-      ]);
+      const currCompressed = await ensureCompressed(currentImages);
+      const body =
+        previousFromQr && previousFromQr.length > 0
+          ? {
+              previousMedications: previousFromQr,
+              currentImages: currCompressed,
+            }
+          : {
+              previousImages: await ensureCompressed(previousImages),
+              currentImages: currCompressed,
+            };
 
       const res = await fetch("/api/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          previousImages: prevCompressed,
-          currentImages: currCompressed,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -62,7 +98,7 @@ export default function ComparePage() {
       );
       setPhase("error");
     }
-  }, [previousImages, currentImages]);
+  }, [previousImages, previousFromQr, currentImages]);
 
   const handleReset = useCallback(() => {
     setPhase("input");
@@ -72,7 +108,7 @@ export default function ComparePage() {
   }, []);
 
   const canSubmit =
-    previousImages.length > 0 &&
+    ((previousFromQr?.length ?? 0) > 0 || previousImages.length > 0) &&
     currentImages.length > 0 &&
     phase !== "loading";
 
@@ -102,22 +138,69 @@ export default function ComparePage() {
                 />
               </section>
 
-              <PhotoSection
-                title="① 前回のお薬手帳"
-                images={previousImages}
-                onAdd={(files) => {
-                  void addFiles(files, setPreviousImages).catch((err) => {
-                    setErrorMessage(
-                      err instanceof Error ? err.message : "画像の読み込みに失敗しました"
-                    );
-                    setPhase("error");
-                  });
-                }}
-                onRemove={(id) =>
-                  setPreviousImages((prev) => prev.filter((img) => img.id !== id))
-                }
-                accent="slate"
-              />
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-4">
+                <h2 className="text-base font-semibold text-slate-700">① 前回のお薬情報</h2>
+                <p className="text-sm text-slate-500">
+                  前回印刷した紙のQRを読むか、お薬手帳の写真を追加してください。
+                </p>
+
+                <input
+                  ref={qrInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const list = e.target.files;
+                    const files = list ? Array.from(list) : [];
+                    e.target.value = "";
+                    void handleQrFile(files);
+                  }}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => qrInputRef.current?.click()}
+                  className="flex items-center justify-center gap-3 w-full rounded-2xl py-5 text-xl font-semibold shadow-md bg-slate-700 hover:bg-slate-800 active:bg-slate-900 text-white transition-colors select-none"
+                >
+                  前回のQRを読み取る
+                </button>
+
+                {previousFromQr && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 text-sm flex items-center justify-between gap-3">
+                    <span>{previousQrLabel}</span>
+                    <button
+                      type="button"
+                      className="underline shrink-0"
+                      onClick={() => {
+                        setPreviousFromQr(null);
+                        setPreviousQrLabel("");
+                      }}
+                    >
+                      クリア
+                    </button>
+                  </div>
+                )}
+
+                {!previousFromQr && (
+                  <PhotoSection
+                    title="または前回の写真を追加"
+                    images={previousImages}
+                    onAdd={(files) => {
+                      void addFiles(files, setPreviousImages).catch((err) => {
+                        setErrorMessage(
+                          err instanceof Error ? err.message : "画像の読み込みに失敗しました"
+                        );
+                        setPhase("error");
+                      });
+                    }}
+                    onRemove={(id) =>
+                      setPreviousImages((prev) => prev.filter((img) => img.id !== id))
+                    }
+                    accent="slate"
+                  />
+                )}
+              </section>
 
               <PhotoSection
                 title="② 今回のお薬手帳"
@@ -133,7 +216,7 @@ export default function ComparePage() {
                 onRemove={(id) =>
                   setCurrentImages((prev) => prev.filter((img) => img.id !== id))
                 }
-                accent="indigo"
+                accent="teal"
               />
 
               {phase === "error" && (
@@ -158,7 +241,7 @@ export default function ComparePage() {
                 </button>
                 {!canSubmit && (
                   <p className="text-center text-sm text-slate-400 mt-2">
-                    前回・今回それぞれ1枚以上の写真が必要です
+                    前回（QRまたは写真）と、今回の写真が必要です
                   </p>
                 )}
               </div>
@@ -172,7 +255,7 @@ export default function ComparePage() {
                 AIが前回と今回を比較しています…
               </p>
               <p className="text-sm text-slate-500 text-center">
-                画像はサーバーに保存されません。しばらくお待ちください。
+                薬品の抽出はお薬表と同じ精度で行い、増減の整理は高速に処理します。
               </p>
             </section>
           )}
@@ -229,6 +312,13 @@ export default function ComparePage() {
                 )}
               </section>
 
+              <MedicationQrPanel
+                medications={qrMedications}
+                patientNumber={patientNumber}
+                createdAt={createdAt}
+                caption="今回時点の薬一覧QR（次回の「前回」に使えます）"
+              />
+
               <div className="flex flex-col gap-3 pb-8">
                 <button
                   type="button"
@@ -252,14 +342,33 @@ export default function ComparePage() {
 
       {result && (
         <div className="print-only print-sheet">
-          <header style={{ marginBottom: "16px", borderBottom: "2px solid #0f766e", paddingBottom: "8px" }}>
-            <h1 style={{ fontSize: "18pt", margin: 0, color: "#0f766e" }}>お薬比較表（前回／今回）</h1>
-            <p style={{ margin: "8px 0 0", fontSize: "12pt" }}>
-              作成日：<strong>{createdAt ? formatDate(createdAt) : "—"}</strong>
-            </p>
-            <p style={{ margin: "4px 0 0", fontSize: "11pt" }}>
-              患者番号：<strong>{patientNumber || "（未入力）"}</strong>
-            </p>
+          <header
+            className="print-header"
+            style={{
+              marginBottom: "12px",
+              borderBottom: "2px solid #0f766e",
+              paddingBottom: "8px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "12px",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 style={{ fontSize: "18pt", margin: 0, color: "#0f766e" }}>お薬比較表（前回／今回）</h1>
+              <p style={{ margin: "6px 0 0", fontSize: "11pt" }}>
+                患者番号：<strong>{patientNumber || "（未入力）"}</strong>
+              </p>
+              <p style={{ margin: "4px 0 0", fontSize: "11pt" }}>
+                作成日：<strong>{createdAt ? formatDate(createdAt) : "—"}</strong>
+              </p>
+            </div>
+            <MedicationQrPanel
+              medications={qrMedications}
+              patientNumber={patientNumber}
+              createdAt={createdAt}
+              compact
+            />
           </header>
 
           <PrintGroup title="増えた薬" items={result.added} tone="added" />
@@ -274,7 +383,7 @@ export default function ComparePage() {
           )}
 
           <footer style={{ marginTop: "20px", fontSize: "9pt", color: "#64748b", borderTop: "1px solid #cbd5e1", paddingTop: "8px" }}>
-            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本と照合してください。患者情報は保存していません。
+            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本と照合してください。患者情報は保存していません。右上QRに今回時点の薬一覧を格納しています。
           </footer>
         </div>
       )}
@@ -334,39 +443,61 @@ function MedGroup({
       {items.length === 0 ? (
         <p className="text-sm text-slate-500">{emptyText}</p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {items.map((med, i) => (
-            <li
-              key={`${tone}-${med.name}-${i}`}
-              className={`bg-white rounded-xl border border-slate-200 px-4 py-3 ${
-                tone === "removed" ? "opacity-80" : ""
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className={`font-semibold text-slate-800 ${tone === "removed" ? "line-through" : ""}`}>
-                    {med.name}
-                  </p>
-                  {med.genericName && (
-                    <p className="text-xs text-slate-500 mt-0.5">{med.genericName}</p>
-                  )}
-                </div>
-                <CautionBadge level={med.cautionLevel} />
-              </div>
-              <p className="text-sm text-slate-600 mt-2">
-                <span className="font-medium text-slate-500">何の薬：</span>
-                {med.purpose}
-              </p>
-              <p className="text-sm text-slate-600 mt-1">
-                <span className="font-medium text-slate-500">歯科注意：</span>
-                {med.dentalNotes}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full text-sm border-collapse min-w-[520px] bg-white">
+            <thead>
+              <tr className="bg-slate-100 text-slate-700">
+                <th className="border border-slate-200 px-3 py-2 text-left w-8">#</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">薬品名</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">何の薬か</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">歯科での注意</th>
+                <th className="border border-slate-200 px-3 py-2 text-left w-16">注意</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((med, i) => (
+                <tr
+                  key={`${tone}-${med.name}-${i}`}
+                  className={`${rowClass(med.cautionLevel)} ${tone === "removed" ? "opacity-80" : ""}`}
+                >
+                  <td className="border border-slate-200 px-3 py-2 text-slate-500">
+                    {i + 1}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2">
+                    <div
+                      className={`font-semibold text-slate-800 ${
+                        tone === "removed" ? "line-through" : ""
+                      }`}
+                    >
+                      {med.name}
+                    </div>
+                    {med.genericName && (
+                      <div className="text-xs text-slate-500 mt-0.5">{med.genericName}</div>
+                    )}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2 text-slate-700">
+                    {med.purpose}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2 text-slate-700">
+                    {med.dentalNotes}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2">
+                    <CautionBadge level={med.cautionLevel} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
+}
+
+function rowClass(level: MedicationItem["cautionLevel"]) {
+  if (level === "high") return "bg-red-50";
+  if (level === "medium") return "bg-amber-50/60";
+  return "bg-white";
 }
 
 function PrintGroup({
@@ -382,15 +513,16 @@ function PrintGroup({
     tone === "added" ? "compare-added" : tone === "removed" ? "compare-removed" : "compare-unchanged";
 
   return (
-    <section style={{ marginBottom: "14px" }} className={className}>
-      <h2 style={{ fontSize: "12pt", margin: "0 0 6px" }}>
-        {title}（{items.length}）
-      </h2>
-      {items.length === 0 ? (
-        <p style={{ fontSize: "10pt", color: "#64748b" }}>なし</p>
-      ) : (
-        <table>
-          <thead>
+    <section style={{ marginBottom: "14px" }} className={`${className} print-section`}>
+      {/* 見出しを thead に含め、表とセットで改ページされるようにする */}
+      <table>
+        <thead>
+          <tr>
+            <th colSpan={5} className="print-section-title">
+              {title}（{items.length}）
+            </th>
+          </tr>
+          {items.length > 0 && (
             <tr>
               <th style={{ width: "6%" }}>#</th>
               <th style={{ width: "24%" }}>薬品名</th>
@@ -398,9 +530,17 @@ function PrintGroup({
               <th style={{ width: "32%" }}>歯科での注意</th>
               <th style={{ width: "10%" }}>注意度</th>
             </tr>
-          </thead>
-          <tbody>
-            {items.map((med, i) => (
+          )}
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={5} style={{ fontSize: "10pt", color: "#64748b", border: "1px solid #334155" }}>
+                なし
+              </td>
+            </tr>
+          ) : (
+            items.map((med, i) => (
               <tr key={`print-${tone}-${med.name}-${i}`}>
                 <td>{i + 1}</td>
                 <td>
@@ -418,10 +558,10 @@ function PrintGroup({
                 <td>{med.dentalNotes}</td>
                 <td>{cautionLabel(med.cautionLevel)}</td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            ))
+          )}
+        </tbody>
+      </table>
     </section>
   );
 }

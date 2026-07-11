@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
 import { AppHeader } from "@/components/AppHeader";
+import { MedicationQrPanel } from "@/components/MedicationQrPanel";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import { formatDate } from "@/lib/formatDate";
 import type { AnalyzeResult, MedicationItem } from "@/lib/types";
@@ -312,6 +313,12 @@ export default function Home() {
                 )}
               </section>
 
+              <MedicationQrPanel
+                medications={result.medications}
+                patientNumber={patientNumber}
+                createdAt={createdAt}
+              />
+
               <div className="flex flex-col gap-3 pb-8">
                 <button
                   type="button"
@@ -336,14 +343,33 @@ export default function Home() {
       {/* ===== 印刷専用レイアウト ===== */}
       {result && (
         <div className="print-only print-sheet">
-          <header style={{ marginBottom: "16px", borderBottom: "2px solid #0f766e", paddingBottom: "8px" }}>
-            <h1 style={{ fontSize: "18pt", margin: 0, color: "#0f766e" }}>お薬情報整理表</h1>
-            <p style={{ margin: "8px 0 0", fontSize: "12pt" }}>
-              作成日：<strong>{createdAt ? formatDate(createdAt) : "—"}</strong>
-            </p>
-            <p style={{ margin: "4px 0 0", fontSize: "11pt" }}>
-              患者番号：<strong>{patientNumber || "（未入力）"}</strong>
-            </p>
+          <header
+            className="print-header"
+            style={{
+              marginBottom: "12px",
+              borderBottom: "2px solid #0f766e",
+              paddingBottom: "8px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "12px",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 style={{ fontSize: "18pt", margin: 0, color: "#0f766e" }}>お薬情報整理表</h1>
+              <p style={{ margin: "6px 0 0", fontSize: "11pt" }}>
+                患者番号：<strong>{patientNumber || "（未入力）"}</strong>
+              </p>
+              <p style={{ margin: "4px 0 0", fontSize: "11pt" }}>
+                作成日：<strong>{createdAt ? formatDate(createdAt) : "—"}</strong>
+              </p>
+            </div>
+            <MedicationQrPanel
+              medications={result.medications}
+              patientNumber={patientNumber}
+              createdAt={createdAt}
+              compact
+            />
           </header>
 
           {result.medications.length === 0 ? (
@@ -400,7 +426,7 @@ export default function Home() {
           )}
 
           <footer style={{ marginTop: "20px", fontSize: "9pt", color: "#64748b", borderTop: "1px solid #cbd5e1", paddingTop: "8px" }}>
-            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本（お薬手帳・処方箋）と照合してください。患者情報は保存していません。
+            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本（お薬手帳・処方箋）と照合してください。患者情報は保存していません。右上QRにお薬一覧を格納しています（サーバー保存なし）。
           </footer>
         </div>
       )}

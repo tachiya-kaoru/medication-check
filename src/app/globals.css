@@ -27,7 +27,8 @@ body {
 @media print {
   @page {
     size: A4;
-    margin: 12mm;
+    /* プリンタ／ブラウザ差があるため、余白は少し広めに確保 */
+    margin: 14mm;
   }
 
   body {
@@ -45,55 +46,119 @@ body {
 
   .print-sheet {
     width: 100%;
+    font-size: 10pt;
+    /* @page 余白が効かない環境向けの内側余白 */
+    padding: 4mm;
+    box-sizing: border-box;
   }
 
   .print-sheet table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11pt;
+    font-size: 9.5pt;
   }
 
   .print-sheet th,
   .print-sheet td {
     border: 1px solid #334155;
-    padding: 6px 8px;
+    padding: 4px 6px;
     vertical-align: top;
     text-align: left;
   }
 
   .print-sheet th {
-    background: #f1f5f9 !important;
+    background: #eeeeee !important;
+    color: black !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
-  .caution-high {
-    background: #fee2e2 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+  /* 表・セクションはページをまたいでOK（無駄な余白を出さない） */
+  .print-sheet table,
+  .print-section {
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
+  /* 1行（1薬品）の途中だけは割れないようにする */
+  .print-sheet tbody tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-sheet th.print-section-title {
+    text-align: left;
+    font-size: 11pt;
+    font-weight: bold;
+    padding: 6px 8px;
+    border: 1px solid #000;
+    background: #dddddd !important;
+    color: black !important;
+  }
+
+  /* 2ページ目以降の先頭に、見出し＋列名を繰り返す */
+  .print-sheet thead {
+    display: table-header-group;
+  }
+
+  .print-sheet tbody {
+    display: table-row-group;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 印刷は白黒（画面のカラーは維持） */
+  .print-sheet,
+  .print-sheet * {
+    color: black !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .print-sheet h1 {
+    color: black !important;
+  }
+
+  .caution-high,
   .caution-medium {
-    background: #fef9c3 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    background: white !important;
   }
 
-  .compare-added table th {
-    background: #d1fae5 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  .compare-removed table th {
-    background: #ffe4e6 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
+  .compare-added table th,
+  .compare-removed table th,
   .compare-unchanged table th {
-    background: #f1f5f9 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    background: #eeeeee !important;
+    color: black !important;
+  }
+
+  .print-sheet th,
+  .print-sheet td {
+    border-color: #000 !important;
+  }
+
+  .print-qr-img {
+    width: 96px;
+    height: 96px;
+    display: block;
+    filter: none; /* QRはもともと白黒 */
+  }
+
+  .print-header {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border-bottom-color: #000 !important;
+  }
+
+  .print-qr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-sheet footer {
+    border-top-color: #000 !important;
+    color: #333 !important;
   }
 }
