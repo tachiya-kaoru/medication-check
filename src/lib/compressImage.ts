@@ -1,8 +1,8 @@
-/** タブレット写真をAPI送信用に縮小・JPEG圧縮する（送信・AI処理の高速化） */
+/** タブレット写真をAPI送信用に縮小・JPEG圧縮する（文字が読める解像度を優先） */
 export async function compressImageDataUrl(
   dataUrl: string,
-  maxWidth = 1024,
-  quality = 0.58
+  maxWidth = 1600,
+  quality = 0.82
 ): Promise<{ mimeType: string; data: string }> {
   const img = await loadImage(dataUrl);
   const scale = Math.min(1, maxWidth / img.width);
