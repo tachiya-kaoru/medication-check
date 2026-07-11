@@ -3,6 +3,7 @@ import { formatDentalCautionListForPrompt } from "@/lib/dentalCautionList";
 import { normalizeDrugKey } from "@/lib/diffMedications";
 import {
   GEMINI_MODEL,
+  GEMINI_MODEL_THOROUGH,
   analyzeResponseSchema,
   buildGeminiConfig,
 } from "@/lib/geminiConfig";
@@ -98,7 +99,8 @@ async function extractOnce(
   ai: GoogleGenAI,
   images: AnalyzeRequestImage[],
   extraTexts: string[],
-  thinkingLevel: ThinkingLevel
+  thinkingLevel: ThinkingLevel,
+  model: string
 ): Promise<AnalyzeResult> {
   const parts: ImagePart[] = [
     { text: buildExtractPrompt() },
@@ -107,7 +109,7 @@ async function extractOnce(
   ];
 
   const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+    model,
     contents: [{ role: "user", parts }],
     config: buildGeminiConfig(analyzeResponseSchema, { thinkingLevel }),
   });
@@ -126,7 +128,7 @@ async function extractOnce(
 
 /**
  * お薬表作成と同じ抽出ロジック（写真 → 薬品リスト）。
- * 1枚のときは見落としやすいので、再読取して結果を統合する。
+ * 1枚のときは解像度依存の見落としが出やすいので、高精度モデルで再読取して統合する。
  */
 export async function extractMedicationsFromImages(
   apiKey: string,
@@ -135,6 +137,7 @@ export async function extractMedicationsFromImages(
 ): Promise<AnalyzeResult> {
   const ai = new GoogleGenAI({ apiKey });
   const singleImage = images.length === 1;
+  const model = singleImage ? GEMINI_MODEL_THOROUGH : GEMINI_MODEL;
   const thinkingLevel = singleImage ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL;
 
   const first = await extractOnce(
@@ -148,14 +151,14 @@ export async function extractMedicationsFromImages(
           ]
         : []),
     ],
-    thinkingLevel
+    thinkingLevel,
+    model
   );
 
   if (!singleImage) {
     return first;
   }
 
-  // 読みにくい1枚対策: 別視点で再抽出し、和集合で漏れを補う
   const firstNames = first.medications
     .map((m) => m.name)
     .filter(Boolean)
@@ -169,7 +172,8 @@ export async function extractMedicationsFromImages(
       `1回目で抽出した薬品名: ${firstNames || "（なし）"}`,
       "1回目の薬は残しつつ、漏れていた薬を必ず追加した最終リストにしてください。存在しない薬は追加しないでください。",
     ],
-    ThinkingLevel.LOW
+    ThinkingLevel.LOW,
+    model
   );
 
   return mergeMedicationResults(first, second);

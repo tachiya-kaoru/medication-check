@@ -196,22 +196,33 @@ export default function ComparePage() {
                 )}
 
                 {!previousFromQr && (
-                  <PhotoSection
-                    title="または前回の写真を追加"
-                    images={previousImages}
-                    onAdd={(files) => {
-                      void addFiles(files, setPreviousImages).catch((err) => {
-                        setErrorMessage(
-                          err instanceof Error ? err.message : "画像の読み込みに失敗しました"
-                        );
-                        setPhase("error");
-                      });
-                    }}
-                    onRemove={(id) =>
-                      setPreviousImages((prev) => prev.filter((img) => img.id !== id))
-                    }
-                    accent="slate"
-                  />
+                  <>
+                    <PhotoSection
+                      title="または前回の写真を追加"
+                      images={previousImages}
+                      onAdd={(files) => {
+                        void addFiles(files, setPreviousImages).catch((err) => {
+                          setErrorMessage(
+                            err instanceof Error
+                              ? err.message
+                              : "画像の読み込みに失敗しました"
+                          );
+                          setPhase("error");
+                        });
+                      }}
+                      onRemove={(id) =>
+                        setPreviousImages((prev) =>
+                          prev.filter((img) => img.id !== id)
+                        )
+                      }
+                      accent="slate"
+                    />
+                    {previousImages.length === 1 && (
+                      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                        読み取りにくい写真のときは、別角度や別ページをもう1枚追加すると漏れが減ります。
+                      </p>
+                    )}
+                  </>
                 )}
               </section>
 
