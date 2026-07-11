@@ -1,6 +1,5 @@
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { formatDentalCautionListForPrompt } from "@/lib/dentalCautionList";
-import { normalizeDrugKey } from "@/lib/diffMedications";
 import {
   GEMINI_MODEL,
   GEMINI_MODEL_THOROUGH,
@@ -8,11 +7,7 @@ import {
   buildGeminiConfig,
 } from "@/lib/geminiConfig";
 import { parseJsonObject, parseMedicationList } from "@/lib/parseMedications";
-import type {
-  AnalyzeRequestImage,
-  AnalyzeResult,
-  MedicationItem,
-} from "@/lib/types";
+import type { AnalyzeRequestImage, AnalyzeResult } from "@/lib/types";
 
 type ImagePart = { text: string } | { inlineData: { mimeType: string; data: string } };
 
@@ -59,52 +54,29 @@ function toInlineParts(images: AnalyzeRequestImage[]): ImagePart[] {
     }));
 }
 
-function medicationKeys(med: MedicationItem): string[] {
-  return [med.name, med.genericName]
-    .map((t) => normalizeDrugKey(t))
-    .filter((t) => t.length >= 2);
-}
-
-function isSameMedication(a: MedicationItem, b: MedicationItem): boolean {
-  const aKeys = medicationKeys(a);
-  const bKeys = medicationKeys(b);
-  if (aKeys.length === 0 || bKeys.length === 0) return false;
-  for (const ak of aKeys) {
-    for (const bk of bKeys) {
-      if (ak === bk) return true;
-      const shorter = ak.length <= bk.length ? ak : bk;
-      const longer = ak.length <= bk.length ? bk : ak;
-      if (shorter.length >= 3 && longer.includes(shorter)) return true;
-    }
-  }
-  return false;
-}
-
-/** 2回の抽出結果を和集合で統合（漏れ補完用） */
-export function mergeMedicationResults(
-  primary: AnalyzeResult,
-  secondary: AnalyzeResult
-): AnalyzeResult {
-  const merged = [...primary.medications];
-  for (const med of secondary.medications) {
-    if (!merged.some((existing) => isSameMedication(existing, med))) {
-      merged.push(med);
-    }
-  }
-  const notes = [primary.notes, secondary.notes].filter(Boolean).join(" ／ ");
-  return { medications: merged, notes };
-}
-
-async function extractOnce(
-  ai: GoogleGenAI,
+/** お薬表作成と同じ抽出ロジック（写真 → 薬品リスト） */
+export async function extractMedicationsFromImages(
+  apiKey: string,
   images: AnalyzeRequestImage[],
-  extraTexts: string[],
-  thinkingLevel: ThinkingLevel,
-  model: string
+  label = "お薬関連"
 ): Promise<AnalyzeResult> {
+  const ai = new GoogleGenAI({ apiKey });
+  const singleImage = images.length === 1;
+  const model = singleImage ? GEMINI_MODEL_THOROUGH : GEMINI_MODEL;
+  const thinkingLevel = singleImage ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL;
+
   const parts: ImagePart[] = [
     { text: buildExtractPrompt() },
-    ...extraTexts.map((text) => ({ text })),
+    {
+      text: `以下は${label}の写真 ${images.length} 枚です。写っている薬品名をすべて抽出し、1剤も落とさないでください。`,
+    },
+    ...(singleImage
+      ? [
+          {
+            text: "写真は1枚のみです。行の端・小さい字・かすれ・反射で読みにくい薬品も、読める範囲ですべて列挙してください。",
+          },
+        ]
+      : []),
     ...toInlineParts(images),
   ];
 
@@ -124,57 +96,4 @@ async function extractOnce(
     medications: parseMedicationList(raw.medications),
     notes: String(raw.notes ?? "").trim(),
   };
-}
-
-/**
- * お薬表作成と同じ抽出ロジック（写真 → 薬品リスト）。
- * 1枚のときは解像度依存の見落としが出やすいので、高精度モデルで再読取して統合する。
- */
-export async function extractMedicationsFromImages(
-  apiKey: string,
-  images: AnalyzeRequestImage[],
-  label = "お薬関連"
-): Promise<AnalyzeResult> {
-  const ai = new GoogleGenAI({ apiKey });
-  const singleImage = images.length === 1;
-  const model = singleImage ? GEMINI_MODEL_THOROUGH : GEMINI_MODEL;
-  const thinkingLevel = singleImage ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL;
-
-  const first = await extractOnce(
-    ai,
-    images,
-    [
-      `以下は${label}の写真 ${images.length} 枚です。写っている薬品名をすべて抽出し、1剤も落とさないでください。`,
-      ...(singleImage
-        ? [
-            "写真は1枚のみです。行の端・小さい字・かすれ・反射で読みにくい薬品も、読める範囲ですべて列挙してください。",
-          ]
-        : []),
-    ],
-    thinkingLevel,
-    model
-  );
-
-  if (!singleImage) {
-    return first;
-  }
-
-  const firstNames = first.medications
-    .map((m) => m.name)
-    .filter(Boolean)
-    .join("、");
-
-  const second = await extractOnce(
-    ai,
-    images,
-    [
-      `以下は${label}の写真1枚の再確認です。1回目の結果に漏れがないか、写真を最初から見直し、完全な薬品リストを返してください。`,
-      `1回目で抽出した薬品名: ${firstNames || "（なし）"}`,
-      "1回目の薬は残しつつ、漏れていた薬を必ず追加した最終リストにしてください。存在しない薬は追加しないでください。",
-    ],
-    ThinkingLevel.LOW,
-    model
-  );
-
-  return mergeMedicationResults(first, second);
 }
