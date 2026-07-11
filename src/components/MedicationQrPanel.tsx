@@ -15,6 +15,8 @@ interface MedicationQrPanelProps {
   createdAt?: Date | null;
   /** 画面用の補足文 */
   caption?: string;
+  /** 印刷ヘッダー向けの小さめ表示 */
+  compact?: boolean;
 }
 
 export function MedicationQrPanel({
@@ -22,6 +24,7 @@ export function MedicationQrPanel({
   patientNumber,
   createdAt,
   caption = "次回比較用QR（サーバーには保存しません）",
+  compact = false,
 }: MedicationQrPanelProps) {
   const [dataUrl, setDataUrl] = useState<string>("");
   const [error, setError] = useState("");
@@ -47,10 +50,11 @@ export function MedicationQrPanel({
           }
           return;
         }
+        // 高解像度で生成し、表示は小さくする（読み取りやすさのため）
         const url = await QRCode.toDataURL(text, {
           errorCorrectionLevel: "M",
           margin: 1,
-          width: 240,
+          width: 280,
           color: { dark: "#0f172a", light: "#ffffff" },
         });
         if (!cancelled) setDataUrl(url);
@@ -70,6 +74,30 @@ export function MedicationQrPanel({
 
   if (medications.length === 0) return null;
 
+  if (compact) {
+    return (
+      <div className="flex flex-col items-center gap-0.5">
+        {tooLarge ? (
+          <p className="text-[9pt] text-amber-700 text-center">QR作成不可</p>
+        ) : error ? (
+          <p className="text-[9pt] text-red-600 text-center">QRエラー</p>
+        ) : dataUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={dataUrl}
+            alt="お薬情報QRコード"
+            className="print-qr-img"
+            width={96}
+            height={96}
+          />
+        ) : (
+          <div className="print-qr-img bg-slate-100" />
+        )}
+        <p className="text-[8pt] text-slate-500">次回比較用</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4">
       <p className="text-sm font-semibold text-slate-700 text-center">{caption}</p>
@@ -84,12 +112,12 @@ export function MedicationQrPanel({
         <img
           src={dataUrl}
           alt="お薬情報QRコード"
-          className="w-48 h-48 print:w-36 print:h-36"
-          width={240}
-          height={240}
+          className="w-36 h-36"
+          width={144}
+          height={144}
         />
       ) : (
-        <div className="w-48 h-48 bg-slate-100 animate-pulse rounded-lg" />
+        <div className="w-36 h-36 bg-slate-100 animate-pulse rounded-lg" />
       )}
       <p className="text-xs text-slate-500 text-center">
         薬 {medications.length} 件をQRに格納

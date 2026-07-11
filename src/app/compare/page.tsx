@@ -160,7 +160,7 @@ export default function ComparePage() {
                 <button
                   type="button"
                   onClick={() => qrInputRef.current?.click()}
-                  className="w-full rounded-2xl py-4 text-lg font-semibold bg-slate-700 hover:bg-slate-800 text-white transition-colors"
+                  className="flex items-center justify-center gap-3 w-full rounded-2xl py-5 text-xl font-semibold shadow-md bg-slate-700 hover:bg-slate-800 active:bg-slate-900 text-white transition-colors select-none"
                 >
                   前回のQRを読み取る
                 </button>
@@ -215,7 +215,7 @@ export default function ComparePage() {
                 onRemove={(id) =>
                   setCurrentImages((prev) => prev.filter((img) => img.id !== id))
                 }
-                accent="indigo"
+                accent="teal"
               />
 
               {phase === "error" && (
@@ -254,7 +254,7 @@ export default function ComparePage() {
                 AIが前回と今回を比較しています…
               </p>
               <p className="text-sm text-slate-500 text-center">
-                画像はサーバーに保存されません。しばらくお待ちください。
+                薬品の抽出はお薬表と同じ精度で行い、増減の整理は高速に処理します。
               </p>
             </section>
           )}
@@ -336,12 +336,33 @@ export default function ComparePage() {
 
       {result && (
         <div className="print-only print-sheet">
-          <header style={{ marginBottom: "16px", borderBottom: "2px solid #0f766e", paddingBottom: "8px" }}>
-            <h1 style={{ fontSize: "18pt", margin: 0, color: "#0f766e" }}>お薬比較表（前回／今回）</h1>
-            <p style={{ margin: "6px 0 0", fontSize: "11pt" }}>
-              患者番号：<strong>{patientNumber || "（未入力）"}</strong>
-              {"　"}作成日時：{createdAt ? formatDateTime(createdAt) : "—"}
-            </p>
+          <header
+            className="print-header"
+            style={{
+              marginBottom: "12px",
+              borderBottom: "2px solid #0f766e",
+              paddingBottom: "8px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "12px",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 style={{ fontSize: "18pt", margin: 0, color: "#0f766e" }}>お薬比較表（前回／今回）</h1>
+              <p style={{ margin: "6px 0 0", fontSize: "11pt" }}>
+                患者番号：<strong>{patientNumber || "（未入力）"}</strong>
+              </p>
+              <p style={{ margin: "4px 0 0", fontSize: "11pt" }}>
+                作成日：<strong>{createdAt ? formatDateTime(createdAt) : "—"}</strong>
+              </p>
+            </div>
+            <MedicationQrPanel
+              medications={qrMedications}
+              patientNumber={patientNumber}
+              createdAt={createdAt}
+              compact
+            />
           </header>
 
           <PrintGroup title="増えた薬" items={result.added} tone="added" />
@@ -355,17 +376,8 @@ export default function ComparePage() {
             </p>
           )}
 
-          <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
-            <MedicationQrPanel
-              medications={qrMedications}
-              patientNumber={patientNumber}
-              createdAt={createdAt}
-              caption="次回比較用QR（今回時点）"
-            />
-          </div>
-
           <footer style={{ marginTop: "20px", fontSize: "9pt", color: "#64748b", borderTop: "1px solid #cbd5e1", paddingTop: "8px" }}>
-            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本と照合してください。患者情報は保存していません。QRに今回時点の薬一覧を格納しています。
+            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本と照合してください。患者情報は保存していません。右上QRに今回時点の薬一覧を格納しています。
           </footer>
         </div>
       )}
@@ -495,15 +507,16 @@ function PrintGroup({
     tone === "added" ? "compare-added" : tone === "removed" ? "compare-removed" : "compare-unchanged";
 
   return (
-    <section style={{ marginBottom: "14px" }} className={className}>
-      <h2 style={{ fontSize: "12pt", margin: "0 0 6px" }}>
-        {title}（{items.length}）
-      </h2>
-      {items.length === 0 ? (
-        <p style={{ fontSize: "10pt", color: "#64748b" }}>なし</p>
-      ) : (
-        <table>
-          <thead>
+    <section style={{ marginBottom: "14px" }} className={`${className} print-section`}>
+      {/* 見出しを thead に含め、表とセットで改ページされるようにする */}
+      <table>
+        <thead>
+          <tr>
+            <th colSpan={5} className="print-section-title">
+              {title}（{items.length}）
+            </th>
+          </tr>
+          {items.length > 0 && (
             <tr>
               <th style={{ width: "6%" }}>#</th>
               <th style={{ width: "24%" }}>薬品名</th>
@@ -511,9 +524,17 @@ function PrintGroup({
               <th style={{ width: "32%" }}>歯科での注意</th>
               <th style={{ width: "10%" }}>注意度</th>
             </tr>
-          </thead>
-          <tbody>
-            {items.map((med, i) => (
+          )}
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={5} style={{ fontSize: "10pt", color: "#64748b", border: "1px solid #334155" }}>
+                なし
+              </td>
+            </tr>
+          ) : (
+            items.map((med, i) => (
               <tr key={`print-${tone}-${med.name}-${i}`}>
                 <td>{i + 1}</td>
                 <td>
@@ -531,10 +552,10 @@ function PrintGroup({
                 <td>{med.dentalNotes}</td>
                 <td>{cautionLabel(med.cautionLevel)}</td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            ))
+          )}
+        </tbody>
+      </table>
     </section>
   );
 }
