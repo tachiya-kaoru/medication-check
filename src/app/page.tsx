@@ -3,7 +3,9 @@
 import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingPanel, type LoadingStep } from "@/components/LoadingPanel";
 import { MedicationQrPanel } from "@/components/MedicationQrPanel";
+import { buildAnalyzeFormData } from "@/lib/buildImageFormData";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import { formatDate } from "@/lib/formatDate";
 import type { AnalyzeResult, MedicationItem } from "@/lib/types";
@@ -14,6 +16,7 @@ export default function Home() {
   const [patientNumber, setPatientNumber] = useState("");
   const [images, setImages] = useState<CapturedImage[]>([]);
   const [phase, setPhase] = useState<AppPhase>("input");
+  const [loadingStep, setLoadingStep] = useState<LoadingStep>("preparing");
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -52,26 +55,36 @@ export default function Home() {
     if (images.length === 0) return;
 
     setPhase("loading");
+    setLoadingStep("preparing");
     setErrorMessage("");
     setResult(null);
 
     try {
       const compressed = await ensureCompressed(images);
+      setLoadingStep("uploading");
 
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images: compressed }),
-      });
+      const analyzeTimer = window.setTimeout(() => {
+        setLoadingStep("analyzing");
+      }, 1200);
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "解析に失敗しました");
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          body: buildAnalyzeFormData(compressed),
+        });
+        setLoadingStep("analyzing");
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "解析に失敗しました");
+        }
+
+        setResult(data as AnalyzeResult);
+        setCreatedAt(new Date());
+        setPhase("result");
+      } finally {
+        window.clearTimeout(analyzeTimer);
       }
-
-      setResult(data as AnalyzeResult);
-      setCreatedAt(new Date());
-      setPhase("result");
     } catch (err) {
       setErrorMessage(
         err instanceof Error ? err.message : "予期しないエラーが発生しました"
@@ -220,17 +233,8 @@ export default function Home() {
             </>
           )}
 
-          {/* 読み込み中 */}
           {phase === "loading" && (
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-10 flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
-              <p className="text-lg font-semibold text-slate-700">
-                AIがお薬情報を読み取っています…
-              </p>
-              <p className="text-sm text-slate-500 text-center">
-                画像はサーバーに保存されません。しばらくお待ちください。
-              </p>
-            </section>
+            <LoadingPanel mode="analyze" step={loadingStep} />
           )}
 
           {/* 結果表示 */}

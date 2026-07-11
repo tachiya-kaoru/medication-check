@@ -2,8 +2,10 @@
 
 import { useRef, useState, useCallback, useMemo } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { LoadingPanel, type LoadingStep } from "@/components/LoadingPanel";
 import { MedicationQrPanel } from "@/components/MedicationQrPanel";
 import { PhotoSection } from "@/components/PhotoSection";
+import { buildCompareFormData } from "@/lib/buildImageFormData";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import { decodeMedicationQrFromFile } from "@/lib/decodeMedicationQr";
 import { formatDate } from "@/lib/formatDate";
@@ -27,6 +29,7 @@ export default function ComparePage() {
   const [previousQrLabel, setPreviousQrLabel] = useState("");
   const [currentImages, setCurrentImages] = useState<CapturedImage[]>([]);
   const [phase, setPhase] = useState<AppPhase>("input");
+  const [loadingStep, setLoadingStep] = useState<LoadingStep>("preparing");
   const [result, setResult] = useState<CompareResult | null>(null);
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -62,36 +65,46 @@ export default function ComparePage() {
     if (!hasPrevious || currentImages.length === 0) return;
 
     setPhase("loading");
+    setLoadingStep("preparing");
     setErrorMessage("");
     setResult(null);
 
     try {
       const currCompressed = await ensureCompressed(currentImages);
-      const body =
+      const formData =
         previousFromQr && previousFromQr.length > 0
-          ? {
+          ? buildCompareFormData({
               previousMedications: previousFromQr,
               currentImages: currCompressed,
-            }
-          : {
+            })
+          : buildCompareFormData({
               previousImages: await ensureCompressed(previousImages),
               currentImages: currCompressed,
-            };
+            });
 
-      const res = await fetch("/api/compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      setLoadingStep("uploading");
+      const analyzeTimer = window.setTimeout(() => {
+        setLoadingStep("analyzing");
+      }, 1200);
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "比較に失敗しました");
+      try {
+        const res = await fetch("/api/compare", {
+          method: "POST",
+          body: formData,
+        });
+        setLoadingStep("analyzing");
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "比較に失敗しました");
+        }
+
+        setResult(data as CompareResult);
+        setCreatedAt(new Date());
+        setPhase("result");
+      } finally {
+        window.clearTimeout(analyzeTimer);
       }
-
-      setResult(data as CompareResult);
-      setCreatedAt(new Date());
-      setPhase("result");
     } catch (err) {
       setErrorMessage(
         err instanceof Error ? err.message : "予期しないエラーが発生しました"
@@ -249,15 +262,7 @@ export default function ComparePage() {
           )}
 
           {phase === "loading" && (
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-10 flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
-              <p className="text-lg font-semibold text-slate-700">
-                AIが前回と今回を比較しています…
-              </p>
-              <p className="text-sm text-slate-500 text-center">
-                薬品の抽出はお薬表と同じ精度で行い、増減の整理は高速に処理します。
-              </p>
-            </section>
+            <LoadingPanel mode="compare" step={loadingStep} />
           )}
 
           {phase === "result" && result && (
