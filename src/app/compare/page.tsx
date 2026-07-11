@@ -425,39 +425,61 @@ function MedGroup({
       {items.length === 0 ? (
         <p className="text-sm text-slate-500">{emptyText}</p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {items.map((med, i) => (
-            <li
-              key={`${tone}-${med.name}-${i}`}
-              className={`bg-white rounded-xl border border-slate-200 px-4 py-3 ${
-                tone === "removed" ? "opacity-80" : ""
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className={`font-semibold text-slate-800 ${tone === "removed" ? "line-through" : ""}`}>
-                    {med.name}
-                  </p>
-                  {med.genericName && (
-                    <p className="text-xs text-slate-500 mt-0.5">{med.genericName}</p>
-                  )}
-                </div>
-                <CautionBadge level={med.cautionLevel} />
-              </div>
-              <p className="text-sm text-slate-600 mt-2">
-                <span className="font-medium text-slate-500">何の薬：</span>
-                {med.purpose}
-              </p>
-              <p className="text-sm text-slate-600 mt-1">
-                <span className="font-medium text-slate-500">歯科注意：</span>
-                {med.dentalNotes}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full text-sm border-collapse min-w-[520px] bg-white">
+            <thead>
+              <tr className="bg-slate-100 text-slate-700">
+                <th className="border border-slate-200 px-3 py-2 text-left w-8">#</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">薬品名</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">何の薬か</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">歯科での注意</th>
+                <th className="border border-slate-200 px-3 py-2 text-left w-16">注意</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((med, i) => (
+                <tr
+                  key={`${tone}-${med.name}-${i}`}
+                  className={`${rowClass(med.cautionLevel)} ${tone === "removed" ? "opacity-80" : ""}`}
+                >
+                  <td className="border border-slate-200 px-3 py-2 text-slate-500">
+                    {i + 1}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2">
+                    <div
+                      className={`font-semibold text-slate-800 ${
+                        tone === "removed" ? "line-through" : ""
+                      }`}
+                    >
+                      {med.name}
+                    </div>
+                    {med.genericName && (
+                      <div className="text-xs text-slate-500 mt-0.5">{med.genericName}</div>
+                    )}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2 text-slate-700">
+                    {med.purpose}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2 text-slate-700">
+                    {med.dentalNotes}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2">
+                    <CautionBadge level={med.cautionLevel} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
+}
+
+function rowClass(level: MedicationItem["cautionLevel"]) {
+  if (level === "high") return "bg-red-50";
+  if (level === "medium") return "bg-amber-50/60";
+  return "bg-white";
 }
 
 function PrintGroup({
