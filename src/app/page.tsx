@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
 import { AppHeader } from "@/components/AppHeader";
+import { MedicationQrPanel } from "@/components/MedicationQrPanel";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import type { AnalyzeResult, MedicationItem } from "@/lib/types";
 
@@ -306,6 +307,12 @@ export default function Home() {
                 )}
               </section>
 
+              <MedicationQrPanel
+                medications={result.medications}
+                patientNumber={patientNumber}
+                createdAt={createdAt}
+              />
+
               <div className="flex flex-col gap-3 pb-8">
                 <button
                   type="button"
@@ -391,8 +398,17 @@ export default function Home() {
             </p>
           )}
 
+          <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+            <MedicationQrPanel
+              medications={result.medications}
+              patientNumber={patientNumber}
+              createdAt={createdAt}
+              caption="次回比較用QR"
+            />
+          </div>
+
           <footer style={{ marginTop: "20px", fontSize: "9pt", color: "#64748b", borderTop: "1px solid #cbd5e1", paddingTop: "8px" }}>
-            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本（お薬手帳・処方箋）と照合してください。患者情報は保存していません。
+            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本（お薬手帳・処方箋）と照合してください。患者情報は保存していません。QRにお薬一覧を格納しています（サーバー保存なし）。
           </footer>
         </div>
       )}

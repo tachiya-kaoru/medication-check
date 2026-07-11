@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useRef, useState, useCallback, useMemo } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { MedicationQrPanel } from "@/components/MedicationQrPanel";
 import { PhotoSection } from "@/components/PhotoSection";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
+import { decodeMedicationQrFromFile } from "@/lib/decodeMedicationQr";
+import { currentMedicationsFromCompare } from "@/lib/medicationQr";
 import type { CompareResult, MedicationItem } from "@/lib/types";
 
 type AppPhase = "input" | "loading" | "result" | "error";
@@ -19,32 +22,65 @@ async function addFiles(
 export default function ComparePage() {
   const [patientNumber, setPatientNumber] = useState("");
   const [previousImages, setPreviousImages] = useState<CapturedImage[]>([]);
+  const [previousFromQr, setPreviousFromQr] = useState<MedicationItem[] | null>(null);
+  const [previousQrLabel, setPreviousQrLabel] = useState("");
   const [currentImages, setCurrentImages] = useState<CapturedImage[]>([]);
   const [phase, setPhase] = useState<AppPhase>("input");
   const [result, setResult] = useState<CompareResult | null>(null);
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const qrInputRef = useRef<HTMLInputElement>(null);
+
+  const qrMedications = useMemo(
+    () => (result ? currentMedicationsFromCompare(result) : []),
+    [result]
+  );
+
+  const handleQrFile = useCallback(async (files: File[]) => {
+    if (!files.length) return;
+    const file = files[0];
+    try {
+      const decoded = await decodeMedicationQrFromFile(file);
+      setPreviousFromQr(decoded.medications);
+      setPreviousQrLabel(
+        `QR読込 ${decoded.medications.length}件` +
+          (decoded.payload.d ? `（${decoded.payload.d}）` : "")
+      );
+      setPreviousImages([]);
+      setPatientNumber((prev) => prev || decoded.payload.p || "");
+      setErrorMessage("");
+      setPhase((p) => (p === "error" ? "input" : p));
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "QRの読み取りに失敗しました");
+      setPhase("error");
+    }
+  }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (previousImages.length === 0 || currentImages.length === 0) return;
+    const hasPrevious = (previousFromQr?.length ?? 0) > 0 || previousImages.length > 0;
+    if (!hasPrevious || currentImages.length === 0) return;
 
     setPhase("loading");
     setErrorMessage("");
     setResult(null);
 
     try {
-      const [prevCompressed, currCompressed] = await Promise.all([
-        ensureCompressed(previousImages),
-        ensureCompressed(currentImages),
-      ]);
+      const currCompressed = await ensureCompressed(currentImages);
+      const body =
+        previousFromQr && previousFromQr.length > 0
+          ? {
+              previousMedications: previousFromQr,
+              currentImages: currCompressed,
+            }
+          : {
+              previousImages: await ensureCompressed(previousImages),
+              currentImages: currCompressed,
+            };
 
       const res = await fetch("/api/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          previousImages: prevCompressed,
-          currentImages: currCompressed,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -61,7 +97,7 @@ export default function ComparePage() {
       );
       setPhase("error");
     }
-  }, [previousImages, currentImages]);
+  }, [previousImages, previousFromQr, currentImages]);
 
   const handleReset = useCallback(() => {
     setPhase("input");
@@ -71,7 +107,7 @@ export default function ComparePage() {
   }, []);
 
   const canSubmit =
-    previousImages.length > 0 &&
+    ((previousFromQr?.length ?? 0) > 0 || previousImages.length > 0) &&
     currentImages.length > 0 &&
     phase !== "loading";
 
@@ -101,22 +137,69 @@ export default function ComparePage() {
                 />
               </section>
 
-              <PhotoSection
-                title="① 前回のお薬手帳"
-                images={previousImages}
-                onAdd={(files) => {
-                  void addFiles(files, setPreviousImages).catch((err) => {
-                    setErrorMessage(
-                      err instanceof Error ? err.message : "画像の読み込みに失敗しました"
-                    );
-                    setPhase("error");
-                  });
-                }}
-                onRemove={(id) =>
-                  setPreviousImages((prev) => prev.filter((img) => img.id !== id))
-                }
-                accent="slate"
-              />
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-4">
+                <h2 className="text-base font-semibold text-slate-700">① 前回のお薬情報</h2>
+                <p className="text-sm text-slate-500">
+                  前回印刷した紙のQRを読むか、お薬手帳の写真を追加してください。
+                </p>
+
+                <input
+                  ref={qrInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const list = e.target.files;
+                    const files = list ? Array.from(list) : [];
+                    e.target.value = "";
+                    void handleQrFile(files);
+                  }}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => qrInputRef.current?.click()}
+                  className="w-full rounded-2xl py-4 text-lg font-semibold bg-slate-700 hover:bg-slate-800 text-white transition-colors"
+                >
+                  前回のQRを読み取る
+                </button>
+
+                {previousFromQr && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 text-sm flex items-center justify-between gap-3">
+                    <span>{previousQrLabel}</span>
+                    <button
+                      type="button"
+                      className="underline shrink-0"
+                      onClick={() => {
+                        setPreviousFromQr(null);
+                        setPreviousQrLabel("");
+                      }}
+                    >
+                      クリア
+                    </button>
+                  </div>
+                )}
+
+                {!previousFromQr && (
+                  <PhotoSection
+                    title="または前回の写真を追加"
+                    images={previousImages}
+                    onAdd={(files) => {
+                      void addFiles(files, setPreviousImages).catch((err) => {
+                        setErrorMessage(
+                          err instanceof Error ? err.message : "画像の読み込みに失敗しました"
+                        );
+                        setPhase("error");
+                      });
+                    }}
+                    onRemove={(id) =>
+                      setPreviousImages((prev) => prev.filter((img) => img.id !== id))
+                    }
+                    accent="slate"
+                  />
+                )}
+              </section>
 
               <PhotoSection
                 title="② 今回のお薬手帳"
@@ -157,7 +240,7 @@ export default function ComparePage() {
                 </button>
                 {!canSubmit && (
                   <p className="text-center text-sm text-slate-400 mt-2">
-                    前回・今回それぞれ1枚以上の写真が必要です
+                    前回（QRまたは写真）と、今回の写真が必要です
                   </p>
                 )}
               </div>
@@ -223,6 +306,13 @@ export default function ComparePage() {
                 )}
               </section>
 
+              <MedicationQrPanel
+                medications={qrMedications}
+                patientNumber={patientNumber}
+                createdAt={createdAt}
+                caption="今回時点の薬一覧QR（次回の「前回」に使えます）"
+              />
+
               <div className="flex flex-col gap-3 pb-8">
                 <button
                   type="button"
@@ -265,8 +355,17 @@ export default function ComparePage() {
             </p>
           )}
 
+          <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+            <MedicationQrPanel
+              medications={qrMedications}
+              patientNumber={patientNumber}
+              createdAt={createdAt}
+              caption="次回比較用QR（今回時点）"
+            />
+          </div>
+
           <footer style={{ marginTop: "20px", fontSize: "9pt", color: "#64748b", borderTop: "1px solid #cbd5e1", paddingTop: "8px" }}>
-            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本と照合してください。患者情報は保存していません。
+            ※ 本表はAIによる参考情報です。診療判断の前に必ず原本と照合してください。患者情報は保存していません。QRに今回時点の薬一覧を格納しています。
           </footer>
         </div>
       )}

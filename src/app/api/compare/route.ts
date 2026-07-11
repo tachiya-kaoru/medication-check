@@ -7,17 +7,18 @@ import {
   compareResponseSchema,
 } from "@/lib/geminiConfig";
 import { parseJsonObject, parseMedicationList } from "@/lib/parseMedications";
-import type { AnalyzeRequestImage, CompareResult } from "@/lib/types";
+import type { AnalyzeRequestImage, CompareResult, MedicationItem } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
 function buildSystemPrompt(): string {
   return `あなたは歯科医院向けの薬剤情報比較アシスタントです。
-「前回」と「今回」のお薬手帳・処方箋などの写真を比較し、増えた薬・消えた薬・継続中の薬を整理してください。
+「前回」と「今回」のお薬情報を比較し、増えた薬・消えた薬・継続中の薬を整理してください。
+前回は写真、またはQRから復元した薬品リストのどちらかで渡されます。
 
 【厳守ルール】
-- 前回・今回それぞれ、写真に写っている薬品をすべて対象にする（1剤でも落とさない。最優先）
+- 前回・今回それぞれ、渡された薬品をすべて対象にする（1剤でも落とさない。最優先）
 - 推測で存在しない薬を追加しない
 - 同一成分・同一薬の表記ゆれ（商品名/一般名、剤形の軽微な違い）は同じ薬として扱う
 - 外用薬・頓服・漢方・点眼・貼付剤も、名前が読めるものは必ず含める
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
 
   let body: {
     previousImages?: AnalyzeRequestImage[];
+    previousMedications?: MedicationItem[];
     currentImages?: AnalyzeRequestImage[];
   };
   try {
@@ -66,11 +68,17 @@ export async function POST(req: NextRequest) {
   }
 
   const previousImages = body.previousImages ?? [];
+  const previousMedications = body.previousMedications ?? [];
   const currentImages = body.currentImages ?? [];
+  const hasPreviousFromQr = previousMedications.length > 0;
+  const hasPreviousFromPhotos = previousImages.length > 0;
 
-  if (previousImages.length === 0 || currentImages.length === 0) {
+  if ((!hasPreviousFromQr && !hasPreviousFromPhotos) || currentImages.length === 0) {
     return NextResponse.json(
-      { error: "前回・今回の写真をそれぞれ1枚以上追加してください" },
+      {
+        error:
+          "前回は写真またはQR、今回は写真を1枚以上用意してください",
+      },
       { status: 400 }
     );
   }
@@ -80,13 +88,31 @@ export async function POST(req: NextRequest) {
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const parts: ImagePart[] = [
-      { text: buildSystemPrompt() },
-      { text: `【前回のお薬手帳】写真 ${previousImages.length} 枚` },
-      ...toInlineParts(previousImages),
-      { text: `【今回のお薬手帳】写真 ${currentImages.length} 枚。前回・今回とも薬品をすべて拾い、1剤も落とさず増減を整理してください。` },
-      ...toInlineParts(currentImages),
-    ];
+    const parts: ImagePart[] = [{ text: buildSystemPrompt() }];
+
+    if (hasPreviousFromQr) {
+      parts.push({
+        text: `【前回のお薬一覧（印刷QRから復元・写真ではない）】\n${JSON.stringify(
+          previousMedications.map((m) => ({
+            name: m.name,
+            genericName: m.genericName,
+            purpose: m.purpose,
+            dentalNotes: m.dentalNotes,
+            cautionLevel: m.cautionLevel,
+          })),
+          null,
+          2
+        )}`,
+      });
+    } else {
+      parts.push({ text: `【前回のお薬手帳】写真 ${previousImages.length} 枚` });
+      parts.push(...toInlineParts(previousImages));
+    }
+
+    parts.push({
+      text: `【今回のお薬手帳】写真 ${currentImages.length} 枚。前回・今回とも薬品をすべて拾い、1剤も落とさず増減を整理してください。`,
+    });
+    parts.push(...toInlineParts(currentImages));
 
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
