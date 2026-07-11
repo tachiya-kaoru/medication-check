@@ -38,14 +38,17 @@ export const compareResponseSchema = {
   required: ["added", "removed", "unchanged", "notes"],
 };
 
-export function buildGeminiConfig(responseJsonSchema: object) {
+export function buildGeminiConfig(
+  responseJsonSchema: object,
+  options?: { thinkingLevel?: ThinkingLevel }
+) {
   return {
     responseMimeType: "application/json" as const,
     responseJsonSchema,
     temperature: 0.2,
-    // お薬名抽出は速度優先（案C）。精度が気になる場合は gemini-3.5-flash に戻す
+    // お薬名抽出は速度優先（案C）。少枚数の再読取時は thinking を少し上げる
     thinkingConfig: {
-      thinkingLevel: ThinkingLevel.MINIMAL,
+      thinkingLevel: options?.thinkingLevel ?? ThinkingLevel.MINIMAL,
     },
   };
 }
