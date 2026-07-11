@@ -54,12 +54,11 @@ export async function filesFromFormData(
   fieldName: string
 ): Promise<AnalyzeRequestImage[]> {
   const entries = formData.getAll(fieldName);
-  const blobs = entries.filter(
-    (entry): entry is Blob =>
-      typeof entry !== "string" &&
-      typeof Blob !== "undefined" &&
-      entry instanceof Blob &&
-      entry.size > 0
-  );
+  const blobs: Blob[] = [];
+  for (const entry of entries) {
+    if (typeof entry === "string") continue;
+    if (typeof entry.arrayBuffer !== "function" || entry.size <= 0) continue;
+    blobs.push(entry);
+  }
   return Promise.all(blobs.map(blobToAnalyzeImage));
 }
