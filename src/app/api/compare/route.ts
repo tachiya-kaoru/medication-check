@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { diffMedicationsLocally } from "@/lib/diffMedications";
 import { extractMedicationsFromImages } from "@/lib/medicationAi";
-import { filesFromFormData } from "@/lib/parseUploadedImages";
+import { filesFromFormData, indexedImagesFromFormData } from "@/lib/parseUploadedImages";
 import type { AnalyzeRequestImage, CompareResult, MedicationItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -20,6 +20,29 @@ async function readComparePayload(req: NextRequest): Promise<{
     if (typeof previousMedicationsRaw === "string" && previousMedicationsRaw) {
       previousMedications = JSON.parse(previousMedicationsRaw) as MedicationItem[];
     }
+
+    const useIndexed =
+      formData.has("currentImageCount") ||
+      formData.has("currentImage_0") ||
+      formData.has("previousImageCount") ||
+      formData.has("previousImage_0");
+
+    if (useIndexed) {
+      return {
+        previousImages: await indexedImagesFromFormData(
+          formData,
+          "previousImage",
+          "previousImageCount"
+        ),
+        previousMedications,
+        currentImages: await indexedImagesFromFormData(
+          formData,
+          "currentImage",
+          "currentImageCount"
+        ),
+      };
+    }
+
     return {
       previousImages: await filesFromFormData(formData, "previousImages"),
       previousMedications,
@@ -54,8 +77,10 @@ export async function POST(req: NextRequest) {
   try {
     ({ previousImages, previousMedications, currentImages } =
       await readComparePayload(req));
-  } catch {
-    return NextResponse.json({ error: "リクエスト形式が不正です" }, { status: 400 });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "リクエスト形式が不正です";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const hasPreviousFromQr = previousMedications.length > 0;
