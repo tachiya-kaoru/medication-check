@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
-import type { AnalyzeRequestImage, AnalyzeResult, MedicationItem } from "@/lib/types";
+import { parseMedicationList, stripJsonFence } from "@/lib/parseMedications";
+import type { AnalyzeRequestImage, AnalyzeResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -94,44 +95,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const parsed = parseAnalyzeResult(text);
-    return NextResponse.json(parsed satisfies AnalyzeResult);
+    const raw = JSON.parse(stripJsonFence(text)) as {
+      medications?: unknown;
+      notes?: unknown;
+    };
+
+    const parsed: AnalyzeResult = {
+      medications: parseMedicationList(raw.medications),
+      notes: String(raw.notes ?? "").trim(),
+    };
+    return NextResponse.json(parsed);
   } catch (err) {
     console.error("[analyze]", err);
     const message =
       err instanceof Error ? err.message : "解析中にエラーが発生しました";
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-function parseAnalyzeResult(text: string): AnalyzeResult {
-  const cleaned = text
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-
-  const raw = JSON.parse(cleaned) as {
-    medications?: unknown[];
-    notes?: unknown;
-  };
-
-  const medications: MedicationItem[] = (raw.medications ?? [])
-    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
-    .map((item) => ({
-      name: String(item.name ?? "").trim() || "（名称不明）",
-      genericName: String(item.genericName ?? "").trim(),
-      purpose: String(item.purpose ?? "").trim() || "—",
-      dentalNotes: String(item.dentalNotes ?? "").trim() || "—",
-      cautionLevel: normalizeCaution(item.cautionLevel),
-    }));
-
-  return {
-    medications,
-    notes: String(raw.notes ?? "").trim(),
-  };
-}
-
-function normalizeCaution(value: unknown): MedicationItem["cautionLevel"] {
-  if (value === "high" || value === "medium" || value === "low") return value;
-  return "medium";
 }

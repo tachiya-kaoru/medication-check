@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
+import { AppHeader } from "@/components/AppHeader";
 import { compressImageDataUrl } from "@/lib/compressImage";
 import type { AnalyzeResult, MedicationItem } from "@/lib/types";
 
@@ -103,12 +104,7 @@ export default function Home() {
     <>
       {/* ===== 画面UI（印刷時は非表示） ===== */}
       <main className="no-print min-h-screen bg-slate-50 flex flex-col">
-        <header className="bg-white border-b border-slate-200 px-6 py-4 shadow-sm">
-          <h1 className="text-2xl font-bold text-teal-700 tracking-wide">
-            お薬情報整理
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">院内専用システム</p>
-        </header>
+        <AppHeader current="analyze" />
 
         <div className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full flex flex-col gap-8">
           {/* 入力フェーズ */}

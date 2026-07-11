@@ -11,6 +11,13 @@ export interface AnalyzeResult {
   notes: string;
 }
 
+export interface CompareResult {
+  added: MedicationItem[];
+  removed: MedicationItem[];
+  unchanged: MedicationItem[];
+  notes: string;
+}
+
 export interface AnalyzeRequestImage {
   mimeType: string;
   data: string; // base64（data URLプレフィックスなし）
