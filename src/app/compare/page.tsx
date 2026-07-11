@@ -6,6 +6,7 @@ import { MedicationQrPanel } from "@/components/MedicationQrPanel";
 import { PhotoSection } from "@/components/PhotoSection";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import { decodeMedicationQrFromFile } from "@/lib/decodeMedicationQr";
+import { formatDate } from "@/lib/formatDate";
 import { currentMedicationsFromCompare } from "@/lib/medicationQr";
 import type { CompareResult, MedicationItem } from "@/lib/types";
 
@@ -266,6 +267,11 @@ export default function ComparePage() {
                   <div>
                     <h2 className="text-lg font-bold text-slate-800">比較結果</h2>
                     <p className="text-sm text-slate-500 mt-1">
+                      作成日：
+                      <span className="font-semibold text-slate-700">
+                        {createdAt ? formatDate(createdAt) : "—"}
+                      </span>
+                      {" ／ "}
                       患者番号：
                       <span className="font-mono font-semibold text-slate-700">
                         {patientNumber || "（未入力）"}
@@ -354,7 +360,7 @@ export default function ComparePage() {
                 患者番号：<strong>{patientNumber || "（未入力）"}</strong>
               </p>
               <p style={{ margin: "4px 0 0", fontSize: "11pt" }}>
-                作成日：<strong>{createdAt ? formatDateTime(createdAt) : "—"}</strong>
+                作成日：<strong>{createdAt ? formatDate(createdAt) : "—"}</strong>
               </p>
             </div>
             <MedicationQrPanel
@@ -578,8 +584,4 @@ function CautionBadge({ level }: { level: MedicationItem["cautionLevel"] }) {
       {cautionLabel(level)}
     </span>
   );
-}
-
-function formatDateTime(d: Date) {
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
