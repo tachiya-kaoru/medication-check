@@ -4,6 +4,7 @@ import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
 import { AppHeader } from "@/components/AppHeader";
 import { compressImageDataUrl } from "@/lib/compressImage";
+import { formatDate } from "@/lib/formatDate";
 import type { AnalyzeResult, MedicationItem } from "@/lib/types";
 
 interface CapturedImage {
@@ -248,6 +249,11 @@ export default function Home() {
                   <div>
                     <h2 className="text-lg font-bold text-slate-800">お薬一覧</h2>
                     <p className="text-sm text-slate-500 mt-1">
+                      作成日：
+                      <span className="font-semibold text-slate-700">
+                        {createdAt ? formatDate(createdAt) : "—"}
+                      </span>
+                      {" ／ "}
                       患者番号：
                       <span className="font-mono font-semibold text-slate-700">
                         {patientNumber || "（未入力）"}
@@ -341,9 +347,11 @@ export default function Home() {
         <div className="print-only print-sheet">
           <header style={{ marginBottom: "16px", borderBottom: "2px solid #0f766e", paddingBottom: "8px" }}>
             <h1 style={{ fontSize: "18pt", margin: 0, color: "#0f766e" }}>お薬情報整理表</h1>
-            <p style={{ margin: "6px 0 0", fontSize: "11pt" }}>
+            <p style={{ margin: "8px 0 0", fontSize: "12pt" }}>
+              作成日：<strong>{createdAt ? formatDate(createdAt) : "—"}</strong>
+            </p>
+            <p style={{ margin: "4px 0 0", fontSize: "11pt" }}>
               患者番号：<strong>{patientNumber || "（未入力）"}</strong>
-              {"　"}作成日時：{createdAt ? formatDateTime(createdAt) : "—"}
             </p>
           </header>
 
@@ -433,10 +441,6 @@ function CautionBadge({ level }: { level: MedicationItem["cautionLevel"] }) {
       {cautionLabel(level)}
     </span>
   );
-}
-
-function formatDateTime(d: Date) {
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function CameraIcon() {
