@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "パスワードが違います" }, { status: 401 });
   }
 
-  const token = createAuthToken(configured, getAuthSecret());
+  const token = await createAuthToken(configured, getAuthSecret());
   const res = NextResponse.json({ ok: true });
   res.cookies.set({
     name: AUTH_COOKIE_NAME,

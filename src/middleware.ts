@@ -6,7 +6,7 @@ import {
   isValidAuthToken,
 } from "@/lib/siteAuth";
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const password = getSitePassword();
   // パスワード未設定時は保護しない（ローカル開発用）
   if (!password) {
@@ -24,7 +24,7 @@ export function middleware(req: NextRequest) {
   }
 
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
-  if (isValidAuthToken(token, password, getAuthSecret())) {
+  if (await isValidAuthToken(token, password, getAuthSecret())) {
     return NextResponse.next();
   }
 
