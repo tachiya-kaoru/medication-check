@@ -26,7 +26,8 @@ const COMPARE_COPY: Record<LoadingStep, { title: string; detail: string }> = {
   },
   analyzing: {
     title: "AIが前回と今回を比較しています…",
-    detail: "薬品の抽出後、増減を整理します。しばらくお待ちください。",
+    detail:
+      "前回→今回の順に読み取ります。枚数が多いと時間がかかります。",
   },
 };
 

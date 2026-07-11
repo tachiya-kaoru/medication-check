@@ -99,24 +99,23 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // 抽出はお薬表と同じAI（正確性）。差分だけローカル処理（高速）。
-    const previousPromise = hasPreviousFromQr
-      ? Promise.resolve({
+    // 抽出はお薬表と同じAI。並列だと読みにくい1枚側が不安定になりやすいので順次実行。
+    const previousResult = hasPreviousFromQr
+      ? {
           medications: previousMedications,
           notes: "",
-        })
-      : extractMedicationsFromImages(apiKey, previousImages, "前回のお薬手帳");
+        }
+      : await extractMedicationsFromImages(
+          apiKey,
+          previousImages,
+          "前回のお薬手帳"
+        );
 
-    const currentPromise = extractMedicationsFromImages(
+    const currentResult = await extractMedicationsFromImages(
       apiKey,
       currentImages,
       "今回のお薬手帳"
     );
-
-    const [previousResult, currentResult] = await Promise.all([
-      previousPromise,
-      currentPromise,
-    ]);
 
     const diff = diffMedicationsLocally(
       previousResult.medications,
