@@ -1,36 +1,110 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# お薬情報整理
 
-## Getting Started
+歯科医院向けの、お薬手帳・薬袋写真から薬品情報を整理する Web アプリです。  
+患者データをサーバーや DB に保存せず、その場で解析・印刷するステートレス構成です。
 
-First, run the development server:
+**デモ:** https://medication-check.vercel.app  
+
+> **注意:** 診療判断の代替ではありません。AI の抽出結果は必ず医療者が確認してください。画像は解析のため Google Gemini API に送信されます。
+
+---
+
+## 課題と解決
+
+### 現場の課題
+
+歯科の定期検診では、来院ごとに患者さんのお薬を確認しています。現状は紙のお薬手帳をコピーし、必要に応じて薬を調べる運用で、次のような負担があります。
+
+- 高齢の患者さんが多く、服用薬の種類・変化が多い一方、ご本人も把握しきれていない
+- マイナンバーの薬情報は参照できてもコピーできず、その日限りで残せない
+- 3ヶ月ごとの検診で毎回確認するため手間が大きく、検診時間短縮（60分→45分）のネックの一つになっている
+
+### このアプリでやったこと
+
+形式の違うお薬情報（紙・画面・薬袋など）を写真から読み取り、**統一フォーマットの表**に整え、**前回との比較**と**薬の概要確認**、**印刷**までできるようにしました。確認作業を短縮しつつ、院内で使い回せる紙（＋QR）として残せます。
+
+---
+
+## できること
+
+| 機能 | 内容 |
+|------|------|
+| **お薬表作成** | 写真（複数枚）から薬品名を抽出し、用途・歯科での注意を表形式で表示・A4印刷 |
+| **前回比較** | 前回／今回の写真を比較し、増えた薬・消えた薬・継続中の薬を整理 |
+| **保存なし QR** | 印刷用紙に薬一覧 QR を付与。比較画面では前回 QR を読み取って再利用可能 |
+| **歯科注意の出し分け** | 院内リストに基づき、特記がある薬だけ注意を表示 |
+| **印刷最適化** | 余白調整・白黒印刷・表の改ページなど、院内プリンタ向けのレイアウト |
+
+患者番号は印刷用紙への反映用のみで、保存しません。
+
+---
+
+## 技術構成
+
+- **Frontend / Backend:** Next.js（App Router）+ TypeScript + Tailwind CSS
+- **AI:** Google Gemini（薬品抽出）
+- **ホスティング:** Vercel（サーバーレス）
+- **データ:** DB なし（リクエスト単位の使い捨て処理）
+
+```
+写真アップロード
+  → 画像圧縮
+  → /api/analyze または /api/compare
+  → Gemini で抽出
+  → 画面表示・A4印刷・QR
+```
+
+---
+
+## ローカル起動
+
+```bash
+git clone https://github.com/tachiya-kaoru/medication-check.git
+cd medication-check
+npm install
+cp .env.local.example .env.local
+```
+
+`.env.local` に [Google AI Studio](https://aistudio.google.com/apikey) の API キーを設定します。
+
+```
+GEMINI_API_KEY=your_api_key_here
+```
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 を開きます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| 画面 | URL |
+|------|-----|
+| お薬表作成 | `/` |
+| 前回比較 | `/compare` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 環境変数
 
-To learn more about Next.js, take a look at the following resources:
+| 変数名 | 説明 |
+|--------|------|
+| `GEMINI_API_KEY` | Gemini API キー（必須） |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Vercel では Project Settings → Environment Variables に同名で設定します。  
+`.env.local` はコミットしません。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 設計上の方針
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **プライバシー優先:** 患者情報・画像を永続保存しない（マイナンバー情報を院内に溜めない制約にも合う）
+- **院内運用前提:** タブレット撮影 → 確認 → 印刷の短い動線
+- **コスト意識:** 画像圧縮・軽量モデル利用で API コストと速度を抑える
+- **拡張余地:** 電子版お薬手帳（JAHIS）QR 読取などは将来対応を想定
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## ライセンス
+
+Private use / portfolio project.  
+商用利用や再配布を検討する場合は、別途ライセンスと免責を整備してください。
