@@ -162,3 +162,22 @@ body {
     color: #333 !important;
   }
 }
+
+/* QRライブ読み取り：枠内のスキャン線 */
+@keyframes qr-scan-line {
+  0% {
+    top: 6%;
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    top: 94%;
+    opacity: 0.55;
+  }
+}
+
+.qr-scan-line {
+  animation: qr-scan-line 1.7s ease-in-out infinite alternate;
+}

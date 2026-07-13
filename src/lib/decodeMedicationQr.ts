@@ -11,6 +11,28 @@ export interface DecodedMedicationQr {
   medications: MedicationItem[];
 }
 
+/** カメラ映像や静止画のピクセルからお薬QRを復元する */
+export function decodeMedicationQrFromImageData(
+  imageData: ImageData
+): DecodedMedicationQr | null {
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "attemptBoth",
+  });
+  if (!code?.data) return null;
+
+  try {
+    const payload = decodeQrPayload(code.data);
+    return {
+      payload,
+      medications: payloadToMedications(payload),
+    };
+  } catch {
+    throw new Error(
+      "このQRには対応していません。印刷したお薬表のQRをかざしてください。"
+    );
+  }
+}
+
 /** 撮影／選択したQR画像からお薬データを復元する */
 export async function decodeMedicationQrFromFile(
   file: File
@@ -20,24 +42,18 @@ export async function decodeMedicationQrFromFile(
   const canvas = document.createElement("canvas");
   canvas.width = image.width;
   canvas.height = image.height;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("画像を処理できませんでした");
 
   ctx.drawImage(image, 0, 0);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: "attemptBoth",
-  });
+  const decoded = decodeMedicationQrFromImageData(imageData);
 
-  if (!code?.data) {
+  if (!decoded) {
     throw new Error("QRコードを読み取れませんでした。もう一度撮影してください。");
   }
 
-  const payload = decodeQrPayload(code.data);
-  return {
-    payload,
-    medications: payloadToMedications(payload),
-  };
+  return decoded;
 }
 
 function readAsDataUrl(file: File): Promise<string> {

@@ -1,13 +1,14 @@
 "use client";
 
-import { useRef, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { LoadingPanel, type LoadingStep } from "@/components/LoadingPanel";
 import { MedicationQrPanel } from "@/components/MedicationQrPanel";
 import { PhotoSection } from "@/components/PhotoSection";
+import { QrScannerModal } from "@/components/QrScannerModal";
 import { buildCompareFormData } from "@/lib/buildImageFormData";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
-import { decodeMedicationQrFromFile } from "@/lib/decodeMedicationQr";
+import type { DecodedMedicationQr } from "@/lib/decodeMedicationQr";
 import { formatDate } from "@/lib/formatDate";
 import { currentMedicationsFromCompare } from "@/lib/medicationQr";
 import type { CompareResult, MedicationItem } from "@/lib/types";
@@ -33,31 +34,24 @@ export default function ComparePage() {
   const [result, setResult] = useState<CompareResult | null>(null);
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
-  const qrInputRef = useRef<HTMLInputElement>(null);
+  const [qrScannerOpen, setQrScannerOpen] = useState(false);
 
   const qrMedications = useMemo(
     () => (result ? currentMedicationsFromCompare(result) : []),
     [result]
   );
 
-  const handleQrFile = useCallback(async (files: File[]) => {
-    if (!files.length) return;
-    const file = files[0];
-    try {
-      const decoded = await decodeMedicationQrFromFile(file);
-      setPreviousFromQr(decoded.medications);
-      setPreviousQrLabel(
-        `QR読込 ${decoded.medications.length}件` +
-          (decoded.payload.d ? `（${decoded.payload.d}）` : "")
-      );
-      setPreviousImages([]);
-      setPatientNumber((prev) => prev || decoded.payload.p || "");
-      setErrorMessage("");
-      setPhase((p) => (p === "error" ? "input" : p));
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "QRの読み取りに失敗しました");
-      setPhase("error");
-    }
+  const applyDecodedQr = useCallback((decoded: DecodedMedicationQr) => {
+    setPreviousFromQr(decoded.medications);
+    setPreviousQrLabel(
+      `QR読込完了 ${decoded.medications.length}件` +
+        (decoded.payload.d ? `（${decoded.payload.d}）` : "")
+    );
+    setPreviousImages([]);
+    setPatientNumber((prev) => prev || decoded.payload.p || "");
+    setErrorMessage("");
+    setPhase((p) => (p === "error" ? "input" : p));
+    setQrScannerOpen(false);
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -141,6 +135,12 @@ export default function ComparePage() {
 
   return (
     <>
+      <QrScannerModal
+        open={qrScannerOpen}
+        onClose={() => setQrScannerOpen(false)}
+        onDecoded={applyDecodedQr}
+      />
+
       <main className="no-print min-h-screen bg-slate-50 flex flex-col">
         <AppHeader current="compare" />
 
@@ -168,34 +168,23 @@ export default function ComparePage() {
               <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-4">
                 <h2 className="text-base font-semibold text-slate-700">① 前回のお薬情報</h2>
                 <p className="text-sm text-slate-500">
-                  前回印刷した紙のQRを読むか、お薬手帳の写真を追加してください。
+                  前回印刷した紙のQRをカメラで読むか、お薬手帳の写真を追加してください。QRは枠に入ると自動で読み取ります。
                 </p>
-
-                <input
-                  ref={qrInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => {
-                    const list = e.target.files;
-                    const files = list ? Array.from(list) : [];
-                    e.target.value = "";
-                    void handleQrFile(files);
-                  }}
-                />
 
                 <button
                   type="button"
-                  onClick={() => qrInputRef.current?.click()}
+                  onClick={() => setQrScannerOpen(true)}
                   className="flex items-center justify-center gap-3 w-full rounded-2xl py-5 text-xl font-semibold shadow-md bg-slate-700 hover:bg-slate-800 active:bg-slate-900 text-white transition-colors select-none"
                 >
                   前回のQRを読み取る
                 </button>
 
                 {previousFromQr && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 text-sm flex items-center justify-between gap-3">
-                    <span>{previousQrLabel}</span>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900 text-sm flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-semibold text-emerald-800">読み取り成功</span>
+                      <span className="truncate">{previousQrLabel}</span>
+                    </div>
                     <button
                       type="button"
                       className="underline shrink-0"
