@@ -1,16 +1,24 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
-import Image from "next/image";
+import { useState, useCallback } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { LoadingPanel, type LoadingStep } from "@/components/LoadingPanel";
 import { MedicationQrPanel } from "@/components/MedicationQrPanel";
+import { PhotoSection } from "@/components/PhotoSection";
 import { buildAnalyzeFormData } from "@/lib/buildImageFormData";
 import { ensureCompressed, filesToCapturedImages, type CapturedImage } from "@/lib/capturedImage";
 import { formatDate } from "@/lib/formatDate";
 import type { AnalyzeResult, MedicationItem } from "@/lib/types";
 
 type AppPhase = "input" | "loading" | "result" | "error";
+
+async function addFiles(
+  files: File[],
+  setter: React.Dispatch<React.SetStateAction<CapturedImage[]>>
+) {
+  const next = await filesToCapturedImages(files);
+  setter((prev) => [...prev, ...next]);
+}
 
 export default function Home() {
   const [patientNumber, setPatientNumber] = useState("");
@@ -20,32 +28,6 @@ export default function Home() {
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [createdAt, setCreatedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const fileList = e.target.files;
-      if (!fileList || fileList.length === 0) return;
-      // value を空にすると FileList も消えるため、先に File[] へコピーする
-      const files = Array.from(fileList);
-      e.target.value = "";
-
-      try {
-        const next = await filesToCapturedImages(files);
-        setImages((prev) => [...prev, ...next]);
-        if (phase === "error") {
-          setPhase("input");
-          setErrorMessage("");
-        }
-      } catch (err) {
-        setErrorMessage(
-          err instanceof Error ? err.message : "画像の読み込みに失敗しました"
-        );
-        setPhase("error");
-      }
-    },
-    [phase]
-  );
 
   const handleRemoveImage = useCallback((id: string) => {
     setImages((prev) => prev.filter((img) => img.id !== id));
@@ -134,75 +116,35 @@ export default function Home() {
                 />
               </section>
 
-              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-slate-700">
-                    お薬手帳・処方箋の写真
-                  </h2>
-                  {images.length > 0 && (
-                    <span className="text-sm text-teal-600 font-medium bg-teal-50 px-3 py-1 rounded-full">
-                      {images.length}枚
-                    </span>
-                  )}
-                </div>
+              <PhotoSection
+                title="お薬手帳・処方箋の写真"
+                images={images}
+                onAdd={(files) => {
+                  void addFiles(files, setImages)
+                    .then(() => {
+                      if (phase === "error") {
+                        setPhase("input");
+                        setErrorMessage("");
+                      }
+                    })
+                    .catch((err) => {
+                      setErrorMessage(
+                        err instanceof Error
+                          ? err.message
+                          : "画像の読み込みに失敗しました"
+                      );
+                      setPhase("error");
+                    });
+                }}
+                onRemove={handleRemoveImage}
+                accent="teal"
+              />
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  capture="environment"
-                  onChange={handleFileChange}
-                  className="hidden"
-                  aria-hidden="true"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center justify-center gap-3 w-full bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white rounded-2xl py-5 text-xl font-semibold shadow-md transition-colors select-none"
-                >
-                  <CameraIcon />
-                  写真を追加する
-                </button>
-
-                {images.length > 0 ? (
-                  <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                    {images.map((img, index) => (
-                      <li
-                        key={img.id}
-                        className="relative rounded-xl overflow-hidden border-2 border-slate-200 shadow-sm aspect-[3/4] bg-slate-100"
-                      >
-                        <Image
-                          src={img.dataUrl}
-                          alt={`撮影画像 ${index + 1}`}
-                          fill
-                          className="object-cover"
-                          sizes="(max-width: 640px) 50vw, 33vw"
-                          unoptimized
-                        />
-                        <span className="absolute top-2 left-2 bg-black/50 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveImage(img.id)}
-                          aria-label={`画像 ${index + 1} を削除`}
-                          className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white rounded-full w-8 h-8 flex items-center justify-center shadow transition-colors"
-                        >
-                          <TrashIcon />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-10 text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
-                    <PhotoPlaceholderIcon />
-                    <p className="mt-3 text-sm">写真がまだありません</p>
-                    <p className="text-xs mt-1">上のボタンから追加してください</p>
-                  </div>
-                )}
-              </section>
+              {images.length === 1 && (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  読み取りにくい写真のときは、別角度や別ページをもう1枚追加すると漏れが減ります。
+                </p>
+              )}
 
               {phase === "error" && (
                 <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-700">
@@ -461,30 +403,5 @@ function CautionBadge({ level }: { level: MedicationItem["cautionLevel"] }) {
     <span className={`inline-block text-xs font-bold px-2 py-1 rounded-md ${styles}`}>
       {cautionLabel(level)}
     </span>
-  );
-}
-
-function CameraIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-7 h-7" aria-hidden="true">
-      <path d="M12 9a3.75 3.75 0 1 0 0 7.5A3.75 3.75 0 0 0 12 9Z" />
-      <path fillRule="evenodd" d="M9.344 3.071a49.52 49.52 0 0 1 5.312 0c.967.052 1.83.585 2.332 1.39l.821 1.317c.24.383.645.643 1.11.71.386.054.77.113 1.152.177 1.432.239 2.429 1.493 2.429 2.909V18a3 3 0 0 1-3 3h-15a3 3 0 0 1-3-3V9.574c0-1.416.997-2.67 2.429-2.909.382-.064.766-.123 1.151-.178a1.56 1.56 0 0 0 1.11-.71l.822-1.315a2.942 2.942 0 0 1 2.332-1.39ZM6.75 12.75a5.25 5.25 0 1 1 10.5 0 5.25 5.25 0 0 1-10.5 0Zm12-1.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden="true">
-      <path fillRule="evenodd" d="M16.5 4.478v.227a48.816 48.816 0 0 1 3.878.512.75.75 0 1 1-.256 1.478l-.209-.035-1.005 13.07a3 3 0 0 1-2.991 2.77H8.084a3 3 0 0 1-2.991-2.77L4.087 6.66l-.209.035a.75.75 0 1 1-.256-1.478A48.567 48.567 0 0 1 7.5 4.705v-.227c0-1.564 1.213-2.9 2.816-2.951a52.662 52.662 0 0 1 3.369 0c1.603.051 2.815 1.387 2.815 2.951Zm-6.136-1.452a51.196 51.196 0 0 1 3.273 0C14.39 3.05 15 3.684 15 4.478v.113a49.488 49.488 0 0 0-6 0v-.113c0-.794.609-1.428 1.364-1.452Zm-.355 5.945a.75.75 0 1 0-1.5.058l.347 9a.75.75 0 1 0 1.499-.058l-.346-9Zm5.48.058a.75.75 0 1 0-1.498-.058l-.347 9a.75.75 0 0 0 1.5.058l.345-9Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function PhotoPlaceholderIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-14 h-14 text-slate-300" aria-hidden="true">
-      <path fillRule="evenodd" d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v12a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V6ZM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0 0 21 18v-1.94l-2.69-2.689a1.5 1.5 0 0 0-2.12 0l-.88.879.97.97a.75.75 0 1 1-1.06 1.06l-5.16-5.159a1.5 1.5 0 0 0-2.12 0L3 16.061Zm10.125-7.81a1.125 1.125 0 1 1 2.25 0 1.125 1.125 0 0 1-2.25 0Z" clipRule="evenodd" />
-    </svg>
   );
 }

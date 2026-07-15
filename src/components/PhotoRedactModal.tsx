@@ -167,7 +167,7 @@ export function PhotoRedactModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-slate-950"
+      className="fixed inset-0 z-[100] flex flex-col bg-slate-950"
       role="dialog"
       aria-modal="true"
       aria-label="写真の確認と黒塗り"
