@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
+import { PhotoRedactModal } from "@/components/PhotoRedactModal";
 import type { CapturedImage } from "@/lib/capturedImage";
 
 export type { CapturedImage };
@@ -14,6 +15,11 @@ interface PhotoSectionProps {
   accent?: "teal" | "slate" | "indigo";
 }
 
+interface RedactItem {
+  dataUrl: string;
+  fileName: string;
+}
+
 export function PhotoSection({
   title,
   images,
@@ -22,6 +28,9 @@ export function PhotoSection({
   accent = "teal",
 }: PhotoSectionProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [redactQueue, setRedactQueue] = useState<RedactItem[]>([]);
+  const confirmedRef = useRef<RedactItem[]>([]);
+
   const buttonClass =
     accent === "indigo"
       ? "bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800"
@@ -35,80 +44,157 @@ export function PhotoSection({
         ? "text-slate-600 bg-slate-100"
         : "text-teal-600 bg-teal-50";
 
-  return (
-    <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-slate-700">{title}</h2>
-        {images.length > 0 && (
-          <span className={`text-sm font-medium px-3 py-1 rounded-full ${badgeClass}`}>
-            {images.length}枚
-          </span>
-        )}
-      </div>
+  const handleFilesSelected = useCallback(async (files: File[]) => {
+    const items = await Promise.all(
+      files.map(async (f) => ({
+        dataUrl: await readFileAsDataUrl(f),
+        fileName: f.name,
+      }))
+    );
+    confirmedRef.current = [];
+    setRedactQueue(items);
+  }, []);
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        capture="environment"
-        onChange={(e) => {
-          const fileList = e.target.files;
-          if (fileList && fileList.length > 0) {
-            // value クリアで FileList が空になる前にコピーする
-            onAdd(Array.from(fileList));
-          }
-          e.target.value = "";
-        }}
-        className="hidden"
-        aria-hidden="true"
-      />
+  const handleRedactConfirm = useCallback(
+    async (redactedDataUrl: string) => {
+      const current = redactQueue[0];
+      if (!current) return;
 
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        className={`flex items-center justify-center gap-3 w-full text-white rounded-2xl py-5 text-xl font-semibold shadow-md transition-colors select-none ${buttonClass}`}
-      >
-        <CameraIcon />
-        写真を追加する
-      </button>
+      const newConfirmed = [...confirmedRef.current, { dataUrl: redactedDataUrl, fileName: current.fileName }];
+      confirmedRef.current = newConfirmed;
+      const newQueue = redactQueue.slice(1);
 
-      {images.length > 0 ? (
-        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          {images.map((img, index) => (
-            <li
-              key={img.id}
-              className="relative rounded-xl overflow-hidden border-2 border-slate-200 shadow-sm aspect-[3/4] bg-slate-100"
-            >
-              <Image
-                src={img.dataUrl}
-                alt={`${title} ${index + 1}`}
-                fill
-                className="object-cover"
-                sizes="(max-width: 640px) 50vw, 33vw"
-                unoptimized
-              />
-              <span className="absolute top-2 left-2 bg-black/50 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-                {index + 1}
-              </span>
-              <button
-                type="button"
-                onClick={() => onRemove(img.id)}
-                aria-label={`画像 ${index + 1} を削除`}
-                className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white rounded-full w-8 h-8 flex items-center justify-center shadow transition-colors"
-              >
-                <TrashIcon />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
-          <p className="text-sm">写真がまだありません</p>
-        </div>
-      )}
-    </section>
+      if (newQueue.length === 0) {
+        // 全枚確認完了 → dataUrl を File に変換して onAdd へ
+        try {
+          const files = await Promise.all(
+            newConfirmed.map(({ dataUrl, fileName }) => dataUrlToFile(dataUrl, fileName))
+          );
+          onAdd(files);
+        } catch {
+          // 変換失敗は無視してリセット
+        }
+        confirmedRef.current = [];
+        setRedactQueue([]);
+      } else {
+        setRedactQueue(newQueue);
+      }
+    },
+    [redactQueue, onAdd]
   );
+
+  const handleRedactCancel = useCallback(() => {
+    confirmedRef.current = [];
+    setRedactQueue([]);
+  }, []);
+
+  // 現在表示中の黒塗りモーダル情報
+  const currentRedact = redactQueue[0] ?? null;
+  const pageIndex = confirmedRef.current.length + 1;
+  const pageTotal = confirmedRef.current.length + redactQueue.length;
+
+  return (
+    <>
+      {currentRedact && (
+        <PhotoRedactModal
+          imageDataUrl={currentRedact.dataUrl}
+          pageIndex={pageIndex}
+          pageTotal={pageTotal}
+          onConfirm={(url) => { void handleRedactConfirm(url); }}
+          onCancel={handleRedactCancel}
+        />
+      )}
+
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-700">{title}</h2>
+          {images.length > 0 && (
+            <span className={`text-sm font-medium px-3 py-1 rounded-full ${badgeClass}`}>
+              {images.length}枚
+            </span>
+          )}
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          capture="environment"
+          onChange={(e) => {
+            const fileList = e.target.files;
+            if (fileList && fileList.length > 0) {
+              void handleFilesSelected(Array.from(fileList));
+            }
+            e.target.value = "";
+          }}
+          className="hidden"
+          aria-hidden="true"
+        />
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className={`flex items-center justify-center gap-3 w-full text-white rounded-2xl py-5 text-xl font-semibold shadow-md transition-colors select-none ${buttonClass}`}
+        >
+          <CameraIcon />
+          写真を追加する
+        </button>
+
+        {images.length > 0 ? (
+          <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            {images.map((img, index) => (
+              <li
+                key={img.id}
+                className="relative rounded-xl overflow-hidden border-2 border-slate-200 shadow-sm aspect-[3/4] bg-slate-100"
+              >
+                <Image
+                  src={img.dataUrl}
+                  alt={`${title} ${index + 1}`}
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 640px) 50vw, 33vw"
+                  unoptimized
+                />
+                <span className="absolute top-2 left-2 bg-black/50 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                  {index + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(img.id)}
+                  aria-label={`画像 ${index + 1} を削除`}
+                  className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white rounded-full w-8 h-8 flex items-center justify-center shadow transition-colors"
+                >
+                  <TrashIcon />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">
+            <p className="text-sm">写真がまだありません</p>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function dataUrlToFile(dataUrl: string, originalFileName: string): Promise<File> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const ext = blob.type === "image/png" ? ".png" : ".jpg";
+  const base = originalFileName.replace(/\.[^.]+$/, "");
+  return new File([blob], `${base}${ext}`, { type: blob.type });
 }
 
 function CameraIcon() {
