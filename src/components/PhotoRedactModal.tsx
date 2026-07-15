@@ -30,6 +30,7 @@ export function PhotoRedactModal({
   const currentRectRef = useRef<Rect | null>(null);
   const [rects, setRects] = useState<Rect[]>([]);
   const rectsRef = useRef<Rect[]>([]);
+  const [loadError, setLoadError] = useState("");
 
   // rectsRef を常に最新に同期（イベントハンドラから最新 rects を読むため）
   useEffect(() => {
@@ -57,21 +58,47 @@ export function PhotoRedactModal({
 
   // 画像が変わるたびにキャンバスを初期化
   useEffect(() => {
+    let cancelled = false;
     setRects([]);
     rectsRef.current = [];
     currentRectRef.current = null;
     drawingRef.current = null;
+    setLoadError("");
 
     const img = new window.Image();
     img.onload = () => {
+      if (cancelled) return;
       imageRef.current = img;
       const canvas = canvasRef.current;
       if (!canvas) return;
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      redrawCanvas([], null);
+      // モバイルのメモリ対策：長辺が大きすぎるときは縮小して描画
+      const maxSide = 2000;
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      // 以後の黒塗りは canvas 上のこの解像度基準で扱うため、
+      // imageRef には同じサイズの一時画像を入れ直す
+      const baked = new window.Image();
+      baked.onload = () => {
+        if (cancelled) return;
+        imageRef.current = baked;
+        redrawCanvas([], null);
+      };
+      baked.src = canvas.toDataURL("image/jpeg", 0.92);
+    };
+    img.onerror = () => {
+      if (!cancelled) {
+        setLoadError("写真を表示できませんでした。撮り直してください。");
+      }
     };
     img.src = imageDataUrl;
+
+    return () => {
+      cancelled = true;
+    };
   }, [imageDataUrl, redrawCanvas]);
 
   // rects 変更時に再描画
@@ -182,7 +209,12 @@ export function PhotoRedactModal({
         </p>
       </div>
 
-      {/* キャンバス */}
+      {loadError ? (
+        <div className="flex-1 flex items-center justify-center px-6">
+          <p className="text-center text-amber-200 text-base">{loadError}</p>
+        </div>
+      ) : (
+      /* キャンバス */
       <div className="flex-1 min-h-0 flex items-center justify-center bg-slate-900 p-2">
         <canvas
           ref={canvasRef}
@@ -197,6 +229,7 @@ export function PhotoRedactModal({
           onTouchEnd={handleEnd}
         />
       </div>
+      )}
 
       {/* ボトム操作 */}
       <div className="shrink-0 bg-slate-950 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-3">
@@ -229,7 +262,8 @@ export function PhotoRedactModal({
           <button
             type="button"
             onClick={handleConfirm}
-            className="flex-[2] rounded-2xl bg-teal-600 py-4 text-lg font-semibold text-white active:bg-teal-700"
+            disabled={!!loadError}
+            className="flex-[2] rounded-2xl bg-teal-600 py-4 text-lg font-semibold text-white active:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {pageTotal > 1 && !isLast ? "OK・次へ" : "OK"}
           </button>

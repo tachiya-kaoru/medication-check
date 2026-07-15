@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback } from "react";
 import Image from "next/image";
+import { PhotoCameraModal } from "@/components/PhotoCameraModal";
 import { PhotoRedactModal } from "@/components/PhotoRedactModal";
 import type { CapturedImage } from "@/lib/capturedImage";
 
@@ -15,10 +16,8 @@ interface PhotoSectionProps {
   accent?: "teal" | "slate" | "indigo";
 }
 
-/** redact モーダルに表示する1枚分の情報 */
 interface RedactItem {
-  /** URL.createObjectURL で作った blob: URL（表示専用） */
-  blobUrl: string;
+  dataUrl: string;
   fileName: string;
 }
 
@@ -29,9 +28,12 @@ export function PhotoSection({
   onRemove,
   accent = "teal",
 }: PhotoSectionProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [redactQueue, setRedactQueue] = useState<RedactItem[]>([]);
-  const confirmedRef = useRef<{ dataUrl: string; fileName: string }[]>([]);
+  const confirmedRef = useRef<RedactItem[]>([]);
 
   const buttonClass =
     accent === "indigo"
@@ -46,25 +48,52 @@ export function PhotoSection({
         ? "text-slate-600 bg-slate-100"
         : "text-teal-600 bg-teal-50";
 
-  /** ファイル選択後に呼ぶ（同期）。blob: URL を作ってキューに積む */
-  const startRedactQueue = useCallback((files: File[]) => {
-    if (files.length === 0) return;
+  const startRedactQueue = useCallback((items: RedactItem[]) => {
+    if (items.length === 0) return;
     confirmedRef.current = [];
-    const items: RedactItem[] = files.map((f) => ({
-      blobUrl: URL.createObjectURL(f),
-      fileName: f.name,
-    }));
     setRedactQueue(items);
+    setLoadingMessage("");
+    setPickerOpen(false);
+    setCameraOpen(false);
   }, []);
 
-  /** 1枚確認完了（canvas から渡される data: URL を受け取る） */
+  const handleLibraryFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      setLoadingMessage("写真を読み込み中…");
+      setPickerOpen(false);
+      try {
+        const items = await Promise.all(
+          files.map(async (file, index) => ({
+            dataUrl: await readFileAsDataUrl(file),
+            fileName: file.name || `photo-${Date.now()}-${index}.jpg`,
+          }))
+        );
+        startRedactQueue(items);
+      } catch {
+        setLoadingMessage("");
+        alert("写真の読み込みに失敗しました。もう一度お試しください。");
+      }
+    },
+    [startRedactQueue]
+  );
+
+  const handleCameraCapture = useCallback(
+    (dataUrl: string) => {
+      startRedactQueue([
+        {
+          dataUrl,
+          fileName: `camera-${Date.now()}.jpg`,
+        },
+      ]);
+    },
+    [startRedactQueue]
+  );
+
   const handleRedactConfirm = useCallback(
     (redactedDataUrl: string) => {
       const current = redactQueue[0];
       if (!current) return;
-
-      // 表示に使った blob URL は用済みなので解放
-      URL.revokeObjectURL(current.blobUrl);
 
       const newConfirmed = [
         ...confirmedRef.current,
@@ -74,7 +103,6 @@ export function PhotoSection({
       const newQueue = redactQueue.slice(1);
 
       if (newQueue.length === 0) {
-        // 全枚完了 → data: URL → File に変換して親へ渡す（atob を使う）
         const files = newConfirmed.map(({ dataUrl, fileName }) =>
           dataUrlToFile(dataUrl, fileName)
         );
@@ -88,14 +116,10 @@ export function PhotoSection({
     [redactQueue, onAdd]
   );
 
-  /** キャンセル：残りの blob URL を全部解放してリセット */
   const handleRedactCancel = useCallback(() => {
-    for (const item of redactQueue) {
-      URL.revokeObjectURL(item.blobUrl);
-    }
     confirmedRef.current = [];
     setRedactQueue([]);
-  }, [redactQueue]);
+  }, []);
 
   const currentRedact = redactQueue[0] ?? null;
   const pageIndex = confirmedRef.current.length + 1;
@@ -103,14 +127,74 @@ export function PhotoSection({
 
   return (
     <>
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-[105] flex items-end justify-center bg-black/50 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="写真の追加方法"
+          onClick={() => setPickerOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl sm:rounded-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-4 text-center text-base font-semibold text-slate-800">
+              写真の追加方法
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setPickerOpen(false);
+                  setCameraOpen(true);
+                }}
+                className={`flex items-center justify-center gap-3 w-full text-white rounded-2xl py-4 text-lg font-semibold ${buttonClass}`}
+              >
+                <CameraIcon />
+                カメラで撮る
+              </button>
+              <button
+                type="button"
+                onClick={() => libraryInputRef.current?.click()}
+                className="w-full rounded-2xl border-2 border-slate-300 py-4 text-lg font-semibold text-slate-700 active:bg-slate-50"
+              >
+                ライブラリから選ぶ
+              </button>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="w-full rounded-2xl py-3 text-base font-medium text-slate-500"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PhotoCameraModal
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={handleCameraCapture}
+      />
+
       {currentRedact && (
         <PhotoRedactModal
-          imageDataUrl={currentRedact.blobUrl}
+          imageDataUrl={currentRedact.dataUrl}
           pageIndex={pageIndex}
           pageTotal={pageTotal}
           onConfirm={handleRedactConfirm}
           onCancel={handleRedactCancel}
         />
+      )}
+
+      {loadingMessage && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70">
+          <p className="rounded-2xl bg-white px-6 py-4 text-base font-semibold text-slate-800">
+            {loadingMessage}
+          </p>
+        </div>
       )}
 
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-5">
@@ -123,22 +207,17 @@ export function PhotoSection({
           )}
         </div>
 
+        {/* capture は付けない（iOS のシステムカメラ経由だと黒塗り前に状態が消えるため） */}
         <input
-          ref={fileInputRef}
+          ref={libraryInputRef}
           type="file"
           accept="image/*"
           multiple
-          capture="environment"
           onChange={(e) => {
             const fileList = e.target.files;
-            if (fileList && fileList.length > 0) {
-              // value クリアより先にファイルを取り出す
-              const files = Array.from(fileList);
-              e.target.value = "";
-              startRedactQueue(files);
-            } else {
-              e.target.value = "";
-            }
+            const files = fileList ? Array.from(fileList) : [];
+            e.target.value = "";
+            void handleLibraryFiles(files);
           }}
           className="hidden"
           aria-hidden="true"
@@ -146,7 +225,7 @@ export function PhotoSection({
 
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setPickerOpen(true)}
           className={`flex items-center justify-center gap-3 w-full text-white rounded-2xl py-5 text-xl font-semibold shadow-md transition-colors select-none ${buttonClass}`}
         >
           <CameraIcon />
@@ -192,10 +271,18 @@ export function PhotoSection({
   );
 }
 
-/**
- * canvas.toDataURL() が返す data: URL を File に変換する。
- * fetch を使わず atob で処理するため、iOS 含む全環境で安定して動く。
- */
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("画像の読み込みに失敗しました"));
+    };
+    reader.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+    reader.readAsDataURL(file);
+  });
+}
+
 function dataUrlToFile(dataUrl: string, originalFileName: string): File {
   const [header, b64] = dataUrl.split(",");
   const mimeMatch = header.match(/:(.*?);/);
