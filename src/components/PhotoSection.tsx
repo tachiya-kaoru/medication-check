@@ -15,8 +15,10 @@ interface PhotoSectionProps {
   accent?: "teal" | "slate" | "indigo";
 }
 
+/** redact モーダルに表示する1枚分の情報 */
 interface RedactItem {
-  dataUrl: string;
+  /** URL.createObjectURL で作った blob: URL（表示専用） */
+  blobUrl: string;
   fileName: string;
 }
 
@@ -29,7 +31,7 @@ export function PhotoSection({
 }: PhotoSectionProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [redactQueue, setRedactQueue] = useState<RedactItem[]>([]);
-  const confirmedRef = useRef<RedactItem[]>([]);
+  const confirmedRef = useRef<{ dataUrl: string; fileName: string }[]>([]);
 
   const buttonClass =
     accent === "indigo"
@@ -44,36 +46,39 @@ export function PhotoSection({
         ? "text-slate-600 bg-slate-100"
         : "text-teal-600 bg-teal-50";
 
-  const handleFilesSelected = useCallback(async (files: File[]) => {
-    const items = await Promise.all(
-      files.map(async (f) => ({
-        dataUrl: await readFileAsDataUrl(f),
-        fileName: f.name,
-      }))
-    );
+  /** ファイル選択後に呼ぶ（同期）。blob: URL を作ってキューに積む */
+  const startRedactQueue = useCallback((files: File[]) => {
+    if (files.length === 0) return;
     confirmedRef.current = [];
+    const items: RedactItem[] = files.map((f) => ({
+      blobUrl: URL.createObjectURL(f),
+      fileName: f.name,
+    }));
     setRedactQueue(items);
   }, []);
 
+  /** 1枚確認完了（canvas から渡される data: URL を受け取る） */
   const handleRedactConfirm = useCallback(
-    async (redactedDataUrl: string) => {
+    (redactedDataUrl: string) => {
       const current = redactQueue[0];
       if (!current) return;
 
-      const newConfirmed = [...confirmedRef.current, { dataUrl: redactedDataUrl, fileName: current.fileName }];
+      // 表示に使った blob URL は用済みなので解放
+      URL.revokeObjectURL(current.blobUrl);
+
+      const newConfirmed = [
+        ...confirmedRef.current,
+        { dataUrl: redactedDataUrl, fileName: current.fileName },
+      ];
       confirmedRef.current = newConfirmed;
       const newQueue = redactQueue.slice(1);
 
       if (newQueue.length === 0) {
-        // 全枚確認完了 → dataUrl を File に変換して onAdd へ
-        try {
-          const files = await Promise.all(
-            newConfirmed.map(({ dataUrl, fileName }) => dataUrlToFile(dataUrl, fileName))
-          );
-          onAdd(files);
-        } catch {
-          // 変換失敗は無視してリセット
-        }
+        // 全枚完了 → data: URL → File に変換して親へ渡す（atob を使う）
+        const files = newConfirmed.map(({ dataUrl, fileName }) =>
+          dataUrlToFile(dataUrl, fileName)
+        );
+        onAdd(files);
         confirmedRef.current = [];
         setRedactQueue([]);
       } else {
@@ -83,12 +88,15 @@ export function PhotoSection({
     [redactQueue, onAdd]
   );
 
+  /** キャンセル：残りの blob URL を全部解放してリセット */
   const handleRedactCancel = useCallback(() => {
+    for (const item of redactQueue) {
+      URL.revokeObjectURL(item.blobUrl);
+    }
     confirmedRef.current = [];
     setRedactQueue([]);
-  }, []);
+  }, [redactQueue]);
 
-  // 現在表示中の黒塗りモーダル情報
   const currentRedact = redactQueue[0] ?? null;
   const pageIndex = confirmedRef.current.length + 1;
   const pageTotal = confirmedRef.current.length + redactQueue.length;
@@ -97,10 +105,10 @@ export function PhotoSection({
     <>
       {currentRedact && (
         <PhotoRedactModal
-          imageDataUrl={currentRedact.dataUrl}
+          imageDataUrl={currentRedact.blobUrl}
           pageIndex={pageIndex}
           pageTotal={pageTotal}
-          onConfirm={(url) => { void handleRedactConfirm(url); }}
+          onConfirm={handleRedactConfirm}
           onCancel={handleRedactCancel}
         />
       )}
@@ -124,9 +132,13 @@ export function PhotoSection({
           onChange={(e) => {
             const fileList = e.target.files;
             if (fileList && fileList.length > 0) {
-              void handleFilesSelected(Array.from(fileList));
+              // value クリアより先にファイルを取り出す
+              const files = Array.from(fileList);
+              e.target.value = "";
+              startRedactQueue(files);
+            } else {
+              e.target.value = "";
             }
-            e.target.value = "";
           }}
           className="hidden"
           aria-hidden="true"
@@ -180,21 +192,22 @@ export function PhotoSection({
   );
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function dataUrlToFile(dataUrl: string, originalFileName: string): Promise<File> {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const ext = blob.type === "image/png" ? ".png" : ".jpg";
+/**
+ * canvas.toDataURL() が返す data: URL を File に変換する。
+ * fetch を使わず atob で処理するため、iOS 含む全環境で安定して動く。
+ */
+function dataUrlToFile(dataUrl: string, originalFileName: string): File {
+  const [header, b64] = dataUrl.split(",");
+  const mimeMatch = header.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "image/jpeg";
+  const bstr = atob(b64);
+  const u8arr = new Uint8Array(bstr.length);
+  for (let i = 0; i < bstr.length; i++) {
+    u8arr[i] = bstr.charCodeAt(i);
+  }
+  const ext = mime === "image/png" ? ".png" : ".jpg";
   const base = originalFileName.replace(/\.[^.]+$/, "");
-  return new File([blob], `${base}${ext}`, { type: blob.type });
+  return new File([u8arr], `${base}${ext}`, { type: mime });
 }
 
 function CameraIcon() {
