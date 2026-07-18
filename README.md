@@ -4,7 +4,8 @@
 患者データをサーバーや DB に保存せず、その場で解析・印刷するステートレス構成です。
 
 **デモ:** https://medication-check.vercel.app  
-**デモ用パスワード:**　PASSWORD
+**デモ用パスワード:**　PASSWORD  
+**機能ごとのファイル索引:** [FEATURES.md](FEATURES.md)
 
 
 
