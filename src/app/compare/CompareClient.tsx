@@ -311,16 +311,16 @@ export default function CompareClient() {
                   tone="added"
                 />
                 <MedGroup
-                  title="消えた薬"
-                  emptyText="消えた薬はありません"
-                  items={result.removed}
-                  tone="removed"
-                />
-                <MedGroup
                   title="継続中の薬"
                   emptyText="継続中の薬はありません"
                   items={result.unchanged}
                   tone="unchanged"
+                />
+                <MedGroup
+                  title="消えた薬"
+                  emptyText="消えた薬はありません"
+                  items={result.removed}
+                  tone="removed"
                 />
 
                 {result.notes && (
@@ -391,8 +391,8 @@ export default function CompareClient() {
           </header>
 
           <PrintGroup title="増えた薬" items={result.added} tone="added" />
-          <PrintGroup title="消えた薬" items={result.removed} tone="removed" />
           <PrintGroup title="継続中の薬" items={result.unchanged} tone="unchanged" />
+          <PrintGroup title="消えた薬" items={result.removed} tone="removed" />
 
           {result.notes && (
             <p style={{ marginTop: "12px", fontSize: "10pt" }}>
@@ -417,13 +417,13 @@ function SummaryChips({ result }: { result: CompareResult }) {
         <p className="text-2xl font-bold text-emerald-700">{result.added.length}</p>
         <p className="text-xs font-semibold text-emerald-800 mt-1">増えた</p>
       </div>
-      <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-3 text-center">
-        <p className="text-2xl font-bold text-rose-700">{result.removed.length}</p>
-        <p className="text-xs font-semibold text-rose-800 mt-1">消えた</p>
-      </div>
       <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-3 text-center">
         <p className="text-2xl font-bold text-slate-700">{result.unchanged.length}</p>
         <p className="text-xs font-semibold text-slate-600 mt-1">継続</p>
+      </div>
+      <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-3 text-center">
+        <p className="text-2xl font-bold text-rose-700">{result.removed.length}</p>
+        <p className="text-xs font-semibold text-rose-800 mt-1">消えた</p>
       </div>
     </div>
   );
